@@ -13,7 +13,7 @@ from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, QPoint, QRect, QSize, QThread, Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QGuiApplication, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
+    QLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -74,6 +75,9 @@ DEFAULT_CONFIG = {
     "betreff": "PN{nr} / Baugruppendaten {firma} {board} / {nr} sind auf M",
     "anrede": "Hallo Vertrieb,",
     "gruss": "VG\nUli",
+    # Textbausteine (Buttons unter den Textfeldern)
+    "bausteine_info": ["Bestellung gemäß PO"],
+    "bausteine_achtung": ["PASTE -> aktuell (TOP/BOTTOM)"],
 }
 
 
@@ -228,6 +232,89 @@ class SendWorker(QObject):
 # --------------------------------------------------------------------------- #
 # Einstellungen
 # --------------------------------------------------------------------------- #
+def as_bullets(text: str) -> str:
+    """Jede nicht-leere Zeile bekommt ein '- ' davor (doppelte Striche vermeiden)."""
+    zeilen = []
+    for z in text.splitlines():
+        z = z.strip()
+        if not z:
+            continue
+        if z.startswith(("- ", "* ", "• ")):
+            z = z[2:].strip()
+        elif z == "-":
+            continue
+        zeilen.append(f"- {z}")
+    return "\n".join(zeilen)
+
+
+class FlowLayout(QLayout):
+    """Layout, das Buttons automatisch in die nächste Zeile umbricht."""
+
+    def __init__(self, parent=None, spacing: int = 4):
+        super().__init__(parent)
+        self._items = []
+        self.setSpacing(spacing)
+        self.setContentsMargins(0, 0, 0, 0)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, i):
+        return self._items[i] if 0 <= i < len(self._items) else None
+
+    def takeAt(self, i):
+        return self._items.pop(i) if 0 <= i < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._do_layout(QRect(0, 0, width, 0), test=True)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect, test=False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        return size
+
+    def _do_layout(self, rect, test):
+        x, y, line_h, sp = rect.x(), rect.y(), 0, self.spacing()
+        for item in self._items:
+            hint = item.sizeHint()
+            if x + hint.width() > rect.right() + 1 and line_h > 0:
+                x, y, line_h = rect.x(), y + line_h + sp, 0
+            if not test:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x += hint.width() + sp
+            line_h = max(line_h, hint.height())
+        return y + line_h - rect.y()
+
+
+def append_line(edit: QPlainTextEdit, text: str):
+    """Hängt einen Textbaustein als neue Zeile an das Textfeld an."""
+    vorhanden = edit.toPlainText()
+    if vorhanden and not vorhanden.endswith("\n"):
+        vorhanden += "\n"
+    edit.setPlainText(vorhanden + text)
+    cursor = edit.textCursor()
+    cursor.movePosition(cursor.MoveOperation.End)
+    edit.setTextCursor(cursor)
+    edit.setFocus()
+
+
 class SettingsDialog(QDialog):
     def __init__(self, cfg: dict, parent=None):
         super().__init__(parent)
@@ -273,6 +360,13 @@ class SettingsDialog(QDialog):
         form.addRow("Betreff:", self.betreff)
         form.addRow("Anrede:", self.anrede)
         form.addRow("Gruß:", self.gruss)
+        form.addRow(QLabel("<b>Textbausteine</b> (ein Baustein pro Zeile)"))
+        self.bs_info = QPlainTextEdit("\n".join(cfg["bausteine_info"]))
+        self.bs_info.setFixedHeight(80)
+        self.bs_achtung = QPlainTextEdit("\n".join(cfg["bausteine_achtung"]))
+        self.bs_achtung.setFixedHeight(80)
+        form.addRow("Info:", self.bs_info)
+        form.addRow("Achtung:", self.bs_achtung)
 
         test_btn = QPushButton("Verbindung zum Server testen")
         test_btn.clicked.connect(self.test_connection)
@@ -302,6 +396,8 @@ class SettingsDialog(QDialog):
             "betreff": self.betreff.text(),
             "anrede": self.anrede.text(),
             "gruss": self.gruss.toPlainText(),
+            "bausteine_info": [z.strip() for z in self.bs_info.toPlainText().splitlines() if z.strip()],
+            "bausteine_achtung": [z.strip() for z in self.bs_achtung.toPlainText().splitlines() if z.strip()],
         }
 
     def test_connection(self):
@@ -396,16 +492,21 @@ class MainWindow(QMainWindow):
         il = QVBoxLayout(info_box)
         self.info_edit = QPlainTextEdit()
         self.info_edit.textChanged.connect(self.update_preview)
-        il.addWidget(self.info_edit)
+        il.addWidget(self.info_edit, 1)
+        self.info_layout = il
+        self.info_buttons: QWidget | None = None
         txt_row.addWidget(info_box)
 
-        warn_box = QGroupBox("Achtung")
+        warn_box = QGroupBox("Achtung (jede Zeile wird ein Aufzählungspunkt)")
         wl = QVBoxLayout(warn_box)
         self.warn_edit = QPlainTextEdit()
         self.warn_edit.textChanged.connect(self.update_preview)
-        wl.addWidget(self.warn_edit)
+        wl.addWidget(self.warn_edit, 1)
+        self.warn_layout = wl
+        self.warn_buttons: QWidget | None = None
         txt_row.addWidget(warn_box)
-        root.addLayout(txt_row, 1)
+        root.addLayout(txt_row, 2)
+        self.build_baustein_buttons()
 
         # --- Vorschau ---
         prev_box = QGroupBox("Vorschau")
@@ -414,7 +515,10 @@ class MainWindow(QMainWindow):
         self.preview.setReadOnly(True)
         self.preview.setFont(QFont("Consolas", 10))
         prl.addWidget(self.preview)
-        root.addWidget(prev_box, 1)
+        # Platz für ca. 20 Zeilen, damit eine normale Mail komplett sichtbar ist
+        zeile = self.preview.fontMetrics().lineSpacing()
+        self.preview.setMinimumHeight(20 * zeile + 12)
+        root.addWidget(prev_box, 3)
 
         # --- Buttons ---
         btn_row = QHBoxLayout()
@@ -436,7 +540,10 @@ class MainWindow(QMainWindow):
         self.nr_edit.textChanged.connect(self.update_subject)
         self.update_subject()
         self.update_preview()
-        self.resize(820, 760)
+        self.info_edit.setMinimumHeight(70)
+        self.warn_edit.setMinimumHeight(70)
+        screen = QGuiApplication.primaryScreen().availableGeometry()
+        self.resize(min(960, screen.width() - 40), min(1000, screen.height() - 60))
 
     # ----- Hilfen -----
     def nr(self) -> str:
@@ -461,7 +568,7 @@ class MainWindow(QMainWindow):
         info = self.info_edit.toPlainText().strip()
         if info:
             teile += ["", info]
-        achtung = self.warn_edit.toPlainText().strip()
+        achtung = as_bullets(self.warn_edit.toPlainText())
         if achtung:
             teile += ["", "Achtung:", "", achtung]
         teile += ["", self.cfg["gruss"]]
@@ -578,6 +685,28 @@ class MainWindow(QMainWindow):
         self.set_status("Senden fehlgeschlagen.", False)
         QMessageBox.critical(self, "Fehler beim Senden", err)
 
+    # ----- Textbausteine -----
+    def build_baustein_buttons(self):
+        for attr, box, edit, key in (
+            ("info_buttons", self.info_layout, self.info_edit, "bausteine_info"),
+            ("warn_buttons", self.warn_layout, self.warn_edit, "bausteine_achtung"),
+        ):
+            alt = getattr(self, attr)
+            if alt is not None:
+                box.removeWidget(alt)
+                alt.hide()
+                alt.deleteLater()
+            container = QWidget()
+            layout = FlowLayout(container)
+            box.addWidget(container)
+            setattr(self, attr, container)
+            for text in self.cfg.get(key, []):
+                btn = QPushButton(text)
+                btn.setToolTip(f"„{text}“ einfügen")
+                btn.setStyleSheet("padding: 2px 8px;")
+                btn.clicked.connect(lambda _=False, e=edit, t=text: append_line(e, t))
+                layout.addWidget(btn)
+
     # ----- Sonstiges -----
     def open_settings(self):
         dlg = SettingsDialog(self.cfg, self)
@@ -585,6 +714,7 @@ class MainWindow(QMainWindow):
             self.session_password = None
             self.to_edit.setText(self.cfg["empfaenger"])
             self.cc_edit.setText(self.cfg["cc"])
+            self.build_baustein_buttons()
             self.update_subject()
             self.update_preview()
 

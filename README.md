@@ -8,7 +8,8 @@ Kleines PyQt6-Tool, um die immer gleiche Email „Baugruppendaten liegen auf …
    und hängt `\21156.01\Aktuell` an, z.B.
    `M:\Projekte_ab_20000\FEINMETALL\21156___G0056D-V01-J7-00126-PV_1191274\21156.01\Aktuell`
    (bei mehreren Treffern erscheint eine Auswahl, der Pfad kann auch von Hand angepasst werden)
-3. Texte in **Info** und **Achtung** eintragen (leeres Achtung-Feld → Abschnitt entfällt)
+3. Texte in **Info** und **Achtung** eintragen – oder per Klick auf einen **Textbaustein-Button** einfügen.
+   Jede Zeile bei Achtung wird in der Mail automatisch ein Aufzählungspunkt (`- `). Leeres Achtung-Feld → Abschnitt entfällt.
 4. **Senden** – die Mail geht direkt über SMTP raus
 
 ## Installation (Windows)
@@ -26,4 +27,6 @@ Beim ersten Mal unter **Einstellungen…** eintragen:
 - Passwort wird über `keyring` im Windows-Anmeldeinformationsspeicher abgelegt – nicht im Klartext
 
 Die Einstellungen landen in `config.json` neben dem Programm (nicht im Git).
+Textbausteine für Info und Achtung legst du unter **Einstellungen → Textbausteine** an (ein Baustein pro Zeile).
+
 Betreff (Platzhalter `{nr}`, `{firma}`, `{board}`; Standard: `PN{nr} / Baugruppendaten {firma} {board} / {nr} sind auf M`), Anrede und Gruß sind dort ebenfalls änderbar.
