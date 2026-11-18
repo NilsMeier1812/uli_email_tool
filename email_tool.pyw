@@ -5,7 +5,10 @@ Start ohne Konsolenfenster:  pythonw email_tool.pyw   (oder Doppelklick)
 
 from __future__ import annotations
 
+import imaplib
 import json
+import re
+import time
 from html import escape as esc
 import smtplib
 import ssl
@@ -172,12 +175,13 @@ QPushButton[role="toggle"]:checked {
 QPushButton[role="chip"] {
     border-radius: 10px;
     padding: 3px 12px;
-    background: #eef2ff;
-    border: 1px solid #e0e7ff;
-    color: #3730a3;
+    background: #ffffff;
+    border: 1px dashed #b6c0ce;
+    color: #475569;
     font-size: 9pt;
 }
-QPushButton[role="chip"]:hover { background: #e0e7ff; }
+QPushButton[role="chip"]:hover { border: 1px solid ACCENT; color: ACCENT; background: #f8fafc; }
+QPushButton[role="chip"]:pressed { background: #e2e8f0; }
 
 /* Vorschau */
 QTextBrowser#preview {
@@ -217,6 +221,11 @@ DEFAULT_CONFIG = {
     "smtp_port": 587,
     "smtp_user": "nimeier",
     "smtp_security": "STARTTLS",  # STARTTLS | SSL/TLS | Keine
+    # Kopie in den Gesendet-Ordner (IMAP, gleiche Zugangsdaten wie SMTP)
+    "imap_aktiv": True,
+    "imap_server": "mail.gcd.de",
+    "imap_port": 993,
+    "imap_ordner": "",  # leer = automatisch erkennen
     "absender": "",  # z.B. vorname.nachname@gcd.de
     "empfaenger": "vertrieb@gcd.de",  # mehrere mit ; trennen
     "cc": "",
@@ -344,8 +353,67 @@ def split_addresses(text: str) -> list[str]:
     return [a.strip() for a in text.replace(",", ";").split(";") if a.strip()]
 
 
+def imap_connect(cfg: dict, password: str) -> imaplib.IMAP4_SSL:
+    imap = imaplib.IMAP4_SSL(
+        cfg["imap_server"], int(cfg["imap_port"]), ssl_context=ssl.create_default_context(), timeout=30
+    )
+    imap.login(cfg["smtp_user"], password)
+    return imap
+
+
+_LIST_RE = re.compile(rb'\((?P<flags>[^)]*)\) (?:"[^"]*"|NIL) (?P<name>.+)')
+
+
+def find_sent_folder(imap: imaplib.IMAP4, wunsch: str = "") -> str:
+    """Gesendet-Ordner finden: eingestellter Name, sonst \\Sent-Flag, sonst übliche Namen."""
+    if wunsch:
+        return wunsch
+    typ, daten = imap.list()
+    ordner: list[tuple[str, str]] = []
+    for zeile in daten or []:
+        if not isinstance(zeile, bytes):
+            continue
+        m = _LIST_RE.match(zeile)
+        if not m:
+            continue
+        name = m.group("name").decode("utf-8", "replace").strip()
+        if name.startswith('"') and name.endswith('"'):
+            name = name[1:-1]
+        ordner.append((m.group("flags").decode().lower(), name))
+    for flags, name in ordner:
+        if "\\sent" in flags:
+            return name
+    namen = {n.lower(): n for _, n in ordner}
+    for kandidat in ("sent", "gesendet", "sent items", "gesendete objekte", "inbox.sent", "inbox/sent"):
+        if kandidat in namen:
+            return namen[kandidat]
+    return "Sent"
+
+
+def imap_quote(name: str) -> str:
+    return '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def save_to_sent(cfg: dict, password: str, msg: EmailMessage) -> str:
+    """Legt die Mail im Gesendet-Ordner ab. Gibt den Ordnernamen zurück."""
+    imap = imap_connect(cfg, password)
+    try:
+        ordner = find_sent_folder(imap, cfg.get("imap_ordner", "").strip())
+        typ, daten = imap.append(
+            imap_quote(ordner), "\\Seen", imaplib.Time2Internaldate(time.time()), msg.as_bytes()
+        )
+        if typ != "OK":
+            raise RuntimeError(f"Server meldet: {daten}")
+        return ordner
+    finally:
+        try:
+            imap.logout()
+        except Exception:
+            pass
+
+
 def send_mail(cfg: dict, password: str, to: list[str], cc: list[str], subject: str,
-              body: str, html: str | None = None):
+              body: str, html: str | None = None) -> EmailMessage:
     msg = EmailMessage()
     msg["From"] = cfg["absender"]
     msg["To"] = ", ".join(to)
@@ -372,10 +440,11 @@ def send_mail(cfg: dict, password: str, to: list[str], cc: list[str], subject: s
         if cfg["smtp_user"]:
             server.login(cfg["smtp_user"], password)
         server.send_message(msg)
+    return msg
 
 
 class SendWorker(QObject):
-    finished = pyqtSignal()
+    finished = pyqtSignal(str)  # Hinweis (leer = alles ok)
     failed = pyqtSignal(str)
 
     def __init__(self, *args):
@@ -384,12 +453,25 @@ class SendWorker(QObject):
 
     def run(self):
         try:
-            send_mail(*self.args)
-            self.finished.emit()
+            msg = send_mail(*self.args)
         except smtplib.SMTPAuthenticationError:
             self.failed.emit("Anmeldung fehlgeschlagen – Benutzername oder Passwort falsch.")
+            return
         except Exception as exc:
             self.failed.emit(f"{type(exc).__name__}: {exc}")
+            return
+        cfg, password = self.args[0], self.args[1]
+        if not cfg.get("imap_aktiv"):
+            self.finished.emit("")
+            return
+        try:
+            save_to_sent(cfg, password, msg)
+            self.finished.emit("")
+        except Exception as exc:
+            self.finished.emit(
+                f"Die Email wurde versendet, konnte aber nicht im Gesendet-Ordner "
+                f"abgelegt werden:\n{type(exc).__name__}: {exc}"
+            )
 
 
 # --------------------------------------------------------------------------- #
@@ -553,6 +635,25 @@ class SettingsDialog(QDialog):
             server_rows.append(("", QLabel("<i>'keyring' nicht installiert – Passwort wird nicht gespeichert.</i>")))
         server_rows.append(("", test_btn))
 
+        self.imap_aktiv = QCheckBox("Kopie jeder gesendeten Mail im Gesendet-Ordner ablegen")
+        self.imap_aktiv.setChecked(bool(cfg["imap_aktiv"]))
+        self.imap_server = QLineEdit(cfg["imap_server"])
+        self.imap_port = QLineEdit(str(cfg["imap_port"]))
+        self.imap_port.setValidator(QIntValidator(1, 65535, self))
+        self.imap_port.setFixedWidth(90)
+        self.imap_ordner = QLineEdit(cfg["imap_ordner"])
+        self.imap_ordner.setPlaceholderText("leer lassen = automatisch erkennen")
+        imap_test = QPushButton("Gesendet-Ordner suchen")
+        imap_test.clicked.connect(self.test_imap)
+        imap_rows = [
+            (None, self.imap_aktiv),
+            ("IMAP-Server", self.imap_server),
+            ("Port (SSL/TLS)", self.imap_port),
+            ("Ordner", self.imap_ordner),
+            ("", set_role(QLabel("Benutzername und Passwort wie beim Postausgangs-Server."), "field")),
+            ("", imap_test),
+        ]
+
         tabs = QTabWidget()
         tabs.addTab(page([
             ("Absender", self.absender),
@@ -565,6 +666,7 @@ class SettingsDialog(QDialog):
             ("Projekt-Basisordner", self.basis),
         ]), "Email")
         tabs.addTab(page(server_rows), "Server (SMTP)")
+        tabs.addTab(page(imap_rows), "Gesendet-Ordner")
         tabs.addTab(page([
             (None, set_role(QLabel("Ein Eintrag pro Zeile – jeder wird ein Button."), "field")),
             ("LP → Lieferant", self.sc_lieferant),
@@ -596,6 +698,10 @@ class SettingsDialog(QDialog):
             "smtp_server": self.server.text().strip(),
             "smtp_port": int(self.port.text() or 587),
             "smtp_security": self.security.currentText(),
+            "imap_aktiv": self.imap_aktiv.isChecked(),
+            "imap_server": self.imap_server.text().strip(),
+            "imap_port": int(self.imap_port.text() or 993),
+            "imap_ordner": self.imap_ordner.text().strip(),
             "smtp_user": self.user.text().strip(),
             "absender": self.absender.text().strip(),
             "empfaenger": self.empfaenger.text().strip(),
@@ -608,6 +714,25 @@ class SettingsDialog(QDialog):
             "shortcuts_lieferant": [z.strip() for z in self.sc_lieferant.toPlainText().splitlines() if z.strip()],
             "shortcuts_sonstiges": [z.strip() for z in self.sc_sonst.toPlainText().splitlines() if z.strip()],
         }
+
+    def test_imap(self):
+        v = dict(self.cfg, **self.values())
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            imap = imap_connect(v, self.password.text())
+            try:
+                ordner = find_sent_folder(imap, v["imap_ordner"])
+                typ, _ = imap.select(imap_quote(ordner), readonly=True)
+            finally:
+                imap.logout()
+            QApplication.restoreOverrideCursor()
+            if typ == "OK":
+                QMessageBox.information(self, "Gesendet-Ordner", f"Gefunden: „{ordner}“")
+            else:
+                QMessageBox.warning(self, "Gesendet-Ordner", f"Ordner „{ordner}“ existiert nicht.")
+        except Exception as exc:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Test fehlgeschlagen", f"{type(exc).__name__}: {exc}")
 
     def test_connection(self):
         v = self.values()
@@ -686,7 +811,7 @@ class ToggleRow(QWidget):
 
 
 def shortcut_button(text: str, slot) -> QPushButton:
-    btn = QPushButton(text)
+    btn = QPushButton(f"+ {text}")
     btn.setToolTip(f"„{text}“ einfügen")
     set_role(btn, "chip")
     btn.clicked.connect(lambda: slot(text))
@@ -1131,8 +1256,12 @@ class MainWindow(QMainWindow):
         worker.failed.connect(self.send_failed)
         self.run_worker(worker)
 
-    def send_done(self):
+    def send_done(self, hinweis: str = ""):
         self.send_btn.setEnabled(True)
+        if hinweis:
+            self.set_status("Email versendet – aber nicht im Gesendet-Ordner abgelegt.", False)
+            QMessageBox.warning(self, APP_NAME, hinweis)
+            return
         self.set_status("Email erfolgreich versendet.", True)
         QMessageBox.information(self, APP_NAME, "Email wurde versendet.")
 

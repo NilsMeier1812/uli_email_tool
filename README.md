@@ -41,6 +41,8 @@ Beim ersten Mal unter **Einstellungen…** eintragen:
 - SMTP ist vorbelegt: `mail.gcd.de`, Port `587`, STARTTLS, Benutzer `nimeier`
 - Passwort wird über `keyring` im Windows-Anmeldeinformationsspeicher abgelegt – nicht im Klartext
 
+**Gesendet-Ordner:** Nach dem Versand legt das Tool per IMAP (`mail.gcd.de:993`, gleiche Zugangsdaten) eine Kopie in deinen Gesendet-Ordner. Der Ordner wird automatisch erkannt; unter **Einstellungen → Gesendet-Ordner** kann man ihn testen, fest eintragen oder die Funktion abschalten.
+
 Die Einstellungen landen in `config.json` neben dem Programm (nicht im Git).
 Shortcut-Buttons (Lieferant, Sonstiges, Freitext, Info-Text) legst du unter **Einstellungen → Textbausteine** an (ein Eintrag pro Zeile).
 
