@@ -9,12 +9,13 @@ Kleines PyQt6-Tool, um die immer gleiche Email „Baugruppendaten liegen auf …
    `M:\Projekte_ab_20000\FEINMETALL\21156___G0056D-V01-J7-00126-PV_1191274\21156.01\Aktuell`
    (bei mehreren Treffern erscheint eine Auswahl, der Pfad kann auch von Hand angepasst werden)
 3. Optional **Entwickler** eintragen → steht im Betreff in Klammern hinter der Firma, z.B. `FEINMETALL (Müller)`
-4. **Info**: `PO` / `Ang` (→ „Bestellung: **gemäß PO** / **gemäß Angebot**“) oder `Text` (eigenes Textfeld),
-   optional **Liefertermin** (in der Mail rot und fett)
+4. **Info**: `PO` / `Ang` (abwählbar) und ein Textfeld:
+   - PO + Text → „Bestellung: **gemäß PO**, Text“ · nur PO → „Bestellung: **gemäß PO**“ · nur Text → „Bestellung: Text“
+   - optional **Liefertermin** (in der Mail rot und fett)
 5. **Achtung** – wird in der Mail zur Aufzählung:
    - **LP**: Einzel-LP / Nutzen, Anzahl (zwei Felder, z.B. `10` + `5er mit Rand`), Lieferant (mit Shortcut-Buttons), Sonstiges (z.B. „Daten sind bei Hersteller“)
    - **Paste**: von M / Hersteller / Keine
-   - **Bauteile**: Freitext
+   - **Bauteile**: Freitext (Shortcut „BOM“)
    - Schalter **US** (US Reinigung), **Lasertrennung**, **Beist** (Beistellung, mit Textfeld → `Beistellung -> ...`) – je ein eigener Punkt
    - **Freitext**: jede Zeile ein eigener Punkt
 
@@ -25,7 +26,8 @@ Kleines PyQt6-Tool, um die immer gleiche Email „Baugruppendaten liegen auf …
    - Bauteile -> ...
    - ...
    ```
-6. **Senden** – die Mail geht direkt über SMTP raus
+6. Bei Bedarf direkt in der **Vorschau** nachbessern (dann werden Feldänderungen nicht mehr übernommen, „Neu aus Feldern“ setzt zurück)
+7. **Senden** – die Mail geht direkt über SMTP raus
 
 ## Installation (Windows)
 Einmal **`Verknuepfung_erstellen.bat`** doppelklicken. Das installiert die Pakete und legt

@@ -41,7 +41,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QTabWidget,
-    QTextBrowser,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -185,7 +185,9 @@ QPushButton[role="chip"]:hover { border: 1px solid ACCENT; color: ACCENT; backgr
 QPushButton[role="chip"]:pressed { background: #e2e8f0; }
 
 /* Vorschau */
-QTextBrowser#preview {
+QWidget#editbar { background: #fef3c7; border: 1px solid #fde68a; border-radius: 8px; }
+QWidget#editbar QLabel { color: #92400e; font-size: 9pt; }
+QTextEdit#preview {
     background: #ffffff;
     border: none;
     padding: 18px 20px;
@@ -286,6 +288,7 @@ DEFAULT_CONFIG = {
     # Buttons neben den Feldern im Bereich LP
     "shortcuts_lieferant": ["Fima", "KC", "Piu"],
     "shortcuts_sonstiges": ["Daten sind bei Hersteller"],
+    "shortcuts_bauteile": ["BOM"],
 }
 
 
@@ -471,7 +474,9 @@ def send_mail(cfg: dict, password: str, to: list[str], cc: list[str], subject: s
     msg["Message-ID"] = make_msgid()
     msg.set_content(body)
     if html:
-        msg.add_alternative(f"<html><body>{html}</body></html>", subtype="html")
+        if not html.lstrip().lower().startswith(("<!doctype", "<html")):
+            html = f"<html><body>{html}</body></html>"
+        msg.add_alternative(html, subtype="html")
 
     ctx = ssl.create_default_context()
     host, port, sec = cfg["smtp_server"], int(cfg["smtp_port"]), cfg["smtp_security"]
@@ -650,8 +655,9 @@ class SettingsDialog(QDialog):
         self.bs_achtung = QPlainTextEdit("\n".join(cfg["bausteine_achtung"]))
         self.sc_lieferant = QPlainTextEdit("\n".join(cfg["shortcuts_lieferant"]))
         self.sc_sonst = QPlainTextEdit("\n".join(cfg["shortcuts_sonstiges"]))
-        for w in (self.bs_info, self.bs_achtung, self.sc_lieferant, self.sc_sonst):
-            w.setFixedHeight(84)
+        self.sc_bauteile = QPlainTextEdit("\n".join(cfg["shortcuts_bauteile"]))
+        for w in (self.bs_info, self.bs_achtung, self.sc_lieferant, self.sc_sonst, self.sc_bauteile):
+            w.setFixedHeight(64)
 
         def page(rows):
             w = QWidget()
@@ -718,8 +724,9 @@ class SettingsDialog(QDialog):
             (None, set_role(QLabel("Ein Eintrag pro Zeile – jeder wird ein Button."), "field")),
             ("LP → Lieferant", self.sc_lieferant),
             ("LP → Sonstiges", self.sc_sonst),
+            ("Bauteile", self.sc_bauteile),
             ("Achtung → Freitext", self.bs_achtung),
-            ("Info (Modus Text)", self.bs_info),
+            ("Info (Text)", self.bs_info),
         ]), "Textbausteine")
 
         buttons = QDialogButtonBox(
@@ -760,6 +767,7 @@ class SettingsDialog(QDialog):
             "bausteine_achtung": [z.strip() for z in self.bs_achtung.toPlainText().splitlines() if z.strip()],
             "shortcuts_lieferant": [z.strip() for z in self.sc_lieferant.toPlainText().splitlines() if z.strip()],
             "shortcuts_sonstiges": [z.strip() for z in self.sc_sonst.toPlainText().splitlines() if z.strip()],
+            "shortcuts_bauteile": [z.strip() for z in self.sc_bauteile.toPlainText().splitlines() if z.strip()],
         }
 
     def test_imap(self):
@@ -943,8 +951,8 @@ class MainWindow(QMainWindow):
         ig.setColumnMinimumWidth(0, LABEL_W)
         ig.setHorizontalSpacing(12)
         ig.setVerticalSpacing(6)
-        self.info_mode = ToggleRow(["PO", "Ang", "Text"], allow_none=False)
-        self.info_mode.changed.connect(self.info_mode_changed)
+        self.info_mode = ToggleRow(["PO", "Ang"])
+        self.info_mode.changed.connect(self.update_preview)
         ig.addWidget(field_label("Bestellung"), 0, 0)
         ig.addWidget(self.info_mode, 0, 1)
 
@@ -952,7 +960,7 @@ class MainWindow(QMainWindow):
         il = QVBoxLayout(self.info_panel)
         il.setContentsMargins(0, 0, 0, 0)
         self.info_edit = QPlainTextEdit()
-        self.info_edit.setFixedHeight(3 * self.info_edit.fontMetrics().lineSpacing() + 14)
+        self.info_edit.setFixedHeight(2 * self.info_edit.fontMetrics().lineSpacing() + 18)
         self.info_edit.textChanged.connect(self.update_preview)
         il.addWidget(self.info_edit)
         self.info_layout = il
@@ -1027,7 +1035,10 @@ class MainWindow(QMainWindow):
         ag.addWidget(bold_label("Bauteile"), r, 0)
         self.bauteile_edit = QLineEdit()
         self.bauteile_edit.textChanged.connect(self.update_preview)
-        ag.addWidget(self.bauteile_edit, r, 1)
+        self.bauteile_row = QHBoxLayout()
+        self.bauteile_row.setSpacing(8)
+        self.bauteile_row.addWidget(self.bauteile_edit, 1)
+        ag.addLayout(self.bauteile_row, r, 1)
         r += 1
 
         # Zusätze – jeder aktive wird ein eigener Aufzählungspunkt
@@ -1067,15 +1078,33 @@ class MainWindow(QMainWindow):
 
         self.lieferant_shortcuts: QWidget | None = None
         self.sonst_shortcuts: QWidget | None = None
+        self.bauteile_shortcuts: QWidget | None = None
         self.build_baustein_buttons()
 
         # --- Vorschau (rechts) ---
         prev_box = QGroupBox("VORSCHAU")
         prl = QVBoxLayout(prev_box)
         prl.setContentsMargins(4, 4, 4, 4)
-        self.preview = QTextBrowser()
+        # Hinweisleiste, sobald die Vorschau von Hand geändert wurde
+        self.edit_bar = QWidget()
+        self.edit_bar.setObjectName("editbar")
+        eb = QHBoxLayout(self.edit_bar)
+        eb.setContentsMargins(12, 6, 6, 6)
+        eb_lbl = QLabel("Von Hand bearbeitet – Änderungen an den Feldern werden nicht mehr übernommen.")
+        eb_lbl.setWordWrap(True)
+        eb.addWidget(eb_lbl, 1)
+        reset_btn = with_icon(set_role(QPushButton("  Neu aus Feldern"), "ghost"), "reset")
+        reset_btn.clicked.connect(self.reset_preview)
+        eb.addWidget(reset_btn)
+        self.edit_bar.hide()
+        prl.addWidget(self.edit_bar)
+
+        self.preview = QTextEdit()
         self.preview.setObjectName("preview")
-        self.preview.setOpenLinks(False)
+        self.preview.setToolTip("Die Vorschau kann direkt bearbeitet werden – gesendet wird, was hier steht.")
+        self.preview.textChanged.connect(self.preview_edited)
+        self.preview_manuell = False
+        self._preview_update = False
         prl.addWidget(self.preview)
         columns.addWidget(prev_box, 4)
 
@@ -1117,13 +1146,6 @@ class MainWindow(QMainWindow):
         )
         self.subject_edit.setText(" ".join(betreff.split()))
 
-    def info_mode_changed(self):
-        modus = self.info_mode.value()
-        self.info_panel.setVisible(modus == "Text")
-        if modus == "Text":
-            self.info_edit.setFocus()
-        self.update_preview()
-
     def beist_text_changed(self, text: str):
         if text.strip() and not self.beist_btn.isChecked():
             self.beist_btn.setChecked(True)  # löst update_preview aus
@@ -1156,13 +1178,18 @@ class MainWindow(QMainWindow):
 
         info: list[tuple[str, str]] = []
         modus = self.info_mode.value()
+        zeilen = [z.rstrip() for z in self.info_edit.toPlainText().strip().splitlines()]
         if modus in INFO_TEXTE:
-            info.append(zeile(f"Bestellung: {INFO_TEXTE[modus]}", f"Bestellung: <b>{esc(INFO_TEXTE[modus])}</b>"))
-        elif modus == "Text":
-            zeilen = self.info_edit.toPlainText().strip().splitlines()
-            if zeilen:
-                zeilen[0] = f"Bestellung: {zeilen[0]}"
-            info += [zeile(z) for z in zeilen]
+            # "Bestellung: gemäß PO, <Text>"  (gemäß … fett)
+            rest = f", {zeilen[0]}" if zeilen else ""
+            info.append(zeile(
+                f"Bestellung: {INFO_TEXTE[modus]}{rest}",
+                f"Bestellung: <b>{esc(INFO_TEXTE[modus])}</b>{esc(rest)}",
+            ))
+            info += [zeile(z) for z in zeilen[1:]]
+        elif zeilen:
+            info.append(zeile(f"Bestellung: {zeilen[0]}"))
+            info += [zeile(z) for z in zeilen[1:]]
         termin = self.termin_edit.text().strip()
         if termin:
             info.append(zeile(
@@ -1202,8 +1229,28 @@ class MainWindow(QMainWindow):
         return text, html
 
     def update_preview(self):
-        if hasattr(self, "preview"):
-            self.preview.setHtml(self.build_mail()[1])
+        if not hasattr(self, "preview") or self.preview_manuell:
+            return
+        self._preview_update = True
+        self.preview.setHtml(self.build_mail()[1])
+        self._preview_update = False
+
+    def preview_edited(self):
+        if self._preview_update or self.preview_manuell:
+            return
+        self.preview_manuell = True
+        self.edit_bar.show()
+
+    def reset_preview(self):
+        self.preview_manuell = False
+        self.edit_bar.hide()
+        self.update_preview()
+
+    def mail_content(self) -> tuple[str, str]:
+        """Inhalt zum Versenden: von Hand bearbeitete Vorschau oder frisch erzeugt."""
+        if self.preview_manuell:
+            return self.preview.toPlainText(), self.preview.toHtml()
+        return self.build_mail()
 
     def set_status(self, text: str, ok: bool | None = None):
         color = {True: "#16a34a", False: "#dc2626", None: "#64748b"}[ok]
@@ -1297,7 +1344,7 @@ class MainWindow(QMainWindow):
 
         self.send_btn.setEnabled(False)
         self.set_status("Sende Email …")
-        text, html = self.build_mail()
+        text, html = self.mail_content()
         worker = SendWorker(cfg, password or "", to, cc, self.subject_edit.text(), text, html)
         worker.finished.connect(self.send_done)
         worker.failed.connect(self.send_failed)
@@ -1346,6 +1393,8 @@ class MainWindow(QMainWindow):
              lambda t: self.lieferant_edit.setText(t)),
             ("sonst_shortcuts", self.sonst_row, "shortcuts_sonstiges",
              lambda t: append_inline(self.sonst_edit, t)),
+            ("bauteile_shortcuts", self.bauteile_row, "shortcuts_bauteile",
+             lambda t: append_inline(self.bauteile_edit, t)),
         ):
             container = QWidget()
             hl = QHBoxLayout(container)
@@ -1377,6 +1426,7 @@ class MainWindow(QMainWindow):
         for btn, _ in self.zusatz_buttons:
             btn.setChecked(False)
         self.info_mode.set_value("PO")
+        self.reset_preview()
         self.set_status("")
         self.nr_edit.setFocus()
 
