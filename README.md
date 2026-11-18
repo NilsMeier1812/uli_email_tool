@@ -28,12 +28,14 @@ Kleines PyQt6-Tool, um die immer gleiche Email „Baugruppendaten liegen auf …
 6. **Senden** – die Mail geht direkt über SMTP raus
 
 ## Installation (Windows)
-```bat
-pip install -r requirements.txt
-```
-Starten per Doppelklick auf `email_tool.pyw` oder `start.bat` – ohne Konsolenfenster, mit eigenem Icon in der Taskleiste.
+Einmal **`Verknuepfung_erstellen.bat`** doppelklicken. Das installiert die Pakete und legt
+eine Verknüpfung **„Uli Email Tool“** mit eigenem Icon auf den Desktop und ins Startmenü.
+Danach startet das Tool per Doppelklick – ohne Konsolenfenster. Die Verknüpfung kann man
+auch an die Taskleiste anheften.
 
-Als eigenständige `.exe` (kein Python auf dem Zielrechner nötig): `build_exe.bat` ausführen → `dist\UliEmailTool.exe`.
+Updates: `git pull` – die Verknüpfung bleibt gültig.
+
+Alternativ als eigenständige `.exe` (nur nötig auf Rechnern ohne Python): `build_exe.bat` → `dist\UliEmailTool.exe`.
 
 ## Einstellungen
 Beim ersten Mal unter **Einstellungen…** eintragen:

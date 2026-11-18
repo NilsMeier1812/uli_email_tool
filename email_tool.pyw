@@ -17,8 +17,9 @@ from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QPoint, QRect, QSize, QThread, Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QGuiApplication, QIcon, QIntValidator
+from PyQt6.QtCore import QByteArray, QObject, QPoint, QRect, QRectF, QSize, QThread, Qt, pyqtSignal
+from PyQt6.QtGui import QFont, QGuiApplication, QIcon, QIntValidator, QPainter, QPixmap
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -205,6 +206,52 @@ def fixed_label(text: str) -> QLabel:
     lbl = field_label(text)
     lbl.setFixedWidth(LABEL_W)
     return lbl
+
+
+# Linien-Icons (Stil angelehnt an Lucide, 24x24, nur Kontur)
+ICON_PATHS = {
+    "search": '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+    "copy": '<rect x="8" y="8" width="13" height="13" rx="2"/>'
+            '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+    "send": '<path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4Z"/>',
+    "reset": '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+    "settings": '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0'
+                'l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51'
+                'a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08'
+                'a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18'
+                'a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39'
+                'a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09'
+                'a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25'
+                'a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    "plus": '<path d="M12 5v14"/><path d="M5 12h14"/>',
+    "plug": '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/>'
+            '<path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
+    "folder": '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9'
+              'A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+}
+
+
+def icon(name: str, color: str = "#475569", size: int = 16, stroke: float = 2.0) -> QIcon:
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
+        f'stroke="{color}" stroke-width="{stroke}" stroke-linecap="round" stroke-linejoin="round">'
+        f"{ICON_PATHS[name]}</svg>"
+    )
+    renderer = QSvgRenderer(QByteArray(svg.encode()))
+    scale = 3  # scharf auf hochauflösenden Bildschirmen
+    pix = QPixmap(size * scale, size * scale)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    renderer.render(painter, QRectF(0, 0, size * scale, size * scale))
+    painter.end()
+    pix.setDevicePixelRatio(scale)
+    return QIcon(pix)
+
+
+def with_icon(btn: QPushButton, name: str, color: str = "#475569", size: int = 16) -> QPushButton:
+    btn.setIcon(icon(name, color, size))
+    btn.setIconSize(QSize(size, size))
+    return btn
 
 
 def set_role(widget, role: str):
@@ -622,7 +669,7 @@ class SettingsDialog(QDialog):
                     f.addRow(field_label(label), widget)
             return w
 
-        test_btn = QPushButton("Verbindung zum Server testen")
+        test_btn = with_icon(QPushButton("  Verbindung zum Server testen"), "plug")
         test_btn.clicked.connect(self.test_connection)
         server_rows = [
             ("Server", self.server),
@@ -643,7 +690,7 @@ class SettingsDialog(QDialog):
         self.imap_port.setFixedWidth(90)
         self.imap_ordner = QLineEdit(cfg["imap_ordner"])
         self.imap_ordner.setPlaceholderText("leer lassen = automatisch erkennen")
-        imap_test = QPushButton("Gesendet-Ordner suchen")
+        imap_test = with_icon(QPushButton("  Gesendet-Ordner suchen"), "folder")
         imap_test.clicked.connect(self.test_imap)
         imap_rows = [
             (None, self.imap_aktiv),
@@ -811,7 +858,7 @@ class ToggleRow(QWidget):
 
 
 def shortcut_button(text: str, slot) -> QPushButton:
-    btn = QPushButton(f"+ {text}")
+    btn = with_icon(QPushButton(text), "plus", "#64748b", 12)
     btn.setToolTip(f"„{text}“ einfügen")
     set_role(btn, "chip")
     btn.clicked.connect(lambda: slot(text))
@@ -852,7 +899,7 @@ class MainWindow(QMainWindow):
         self.nr_edit = QLineEdit()
         self.nr_edit.setMaxLength(10)
         self.nr_edit.returnPressed.connect(self.search)
-        self.search_btn = QPushButton("Suchen")
+        self.search_btn = with_icon(QPushButton("  Suchen"), "search")
         self.search_btn.clicked.connect(self.search)
         pl.addWidget(field_label("Projektnummer"), 0, 0)
         pl.addWidget(self.nr_edit, 0, 1)
@@ -862,7 +909,7 @@ class MainWindow(QMainWindow):
         self.path_edit.setPlaceholderText("wird nach der Suche gefüllt (kann auch angepasst werden)")
         self.path_edit.textChanged.connect(self.update_preview)
         self.path_edit.textChanged.connect(self.update_subject)
-        copy_btn = QPushButton("Kopieren")
+        copy_btn = with_icon(QPushButton("  Kopieren"), "copy")
         copy_btn.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.path_edit.text()))
         pl.addWidget(field_label("Pfad"), 1, 0)
         pl.addWidget(self.path_edit, 1, 1)
@@ -1034,14 +1081,14 @@ class MainWindow(QMainWindow):
 
         # --- Buttons ---
         btn_row = QHBoxLayout()
-        settings_btn = set_role(QPushButton("⚙  Einstellungen"), "ghost")
+        settings_btn = with_icon(set_role(QPushButton("  Einstellungen"), "ghost"), "settings")
         settings_btn.clicked.connect(self.open_settings)
         btn_row.addWidget(settings_btn)
         btn_row.addStretch(1)
-        clear_btn = set_role(QPushButton("Leeren"), "ghost")
+        clear_btn = with_icon(set_role(QPushButton("  Leeren"), "ghost"), "reset")
         clear_btn.clicked.connect(self.clear)
         btn_row.addWidget(clear_btn)
-        self.send_btn = set_role(QPushButton("Senden  ➤"), "primary")
+        self.send_btn = with_icon(set_role(QPushButton("  Senden"), "primary"), "send", "#ffffff")
         self.send_btn.setMinimumWidth(140)
         self.send_btn.clicked.connect(self.send)
         btn_row.addWidget(self.send_btn)
