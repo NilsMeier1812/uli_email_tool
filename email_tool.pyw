@@ -1206,7 +1206,7 @@ class MainWindow(QMainWindow):
             return text, html if html is not None else esc(text)
 
         absaetze.append([zeile(self.cfg["anrede"])])
-        absaetze.append([zeile(f"Die Baugruppendaten für das Board sind auf {self.path_edit.text().strip()}")])
+        absaetze.append([zeile(f"die Baugruppendaten für das Board sind auf {self.path_edit.text().strip()}")])
 
         info: list[tuple[str, str]] = []
         modus = self.info_mode.value()
