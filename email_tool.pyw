@@ -71,6 +71,12 @@ INFO_TEXTE = {  # erscheint als "Bestellung <b>gemäß …</b>"
     "Ang": "gemäß Angebot",
 }
 
+ZUSAETZE = [  # (Button, Text in der Mail) – erscheinen nach "Bauteile"
+    ("US", "US Reinigung"),
+    ("Lasertrennung", "Lasertrennung"),
+    ("Beist", "Beistellung"),
+]
+
 TOGGLE_STYLE = "QPushButton:checked { background: #206ec8; color: white; font-weight: bold; }"
 
 DEFAULT_CONFIG = {
@@ -90,7 +96,7 @@ DEFAULT_CONFIG = {
     "bausteine_info": [],
     "bausteine_achtung": [],
     # Buttons neben den Feldern im Bereich LP
-    "shortcuts_lieferant": ["Lieferant 1", "Lieferant 2"],
+    "shortcuts_lieferant": ["Fima", "KC", "Piu"],
     "shortcuts_sonstiges": ["Daten sind bei Hersteller"],
 }
 
@@ -109,8 +115,10 @@ def load_config() -> dict:
     cfg["bausteine_info"] = [b for b in cfg.get("bausteine_info", []) if b != "Bestellung gemäß PO"]
     # Paste hat jetzt einen eigenen Bereich
     cfg["bausteine_achtung"] = [
-        b for b in cfg.get("bausteine_achtung", []) if b != "PASTE -> aktuell (TOP/BOTTOM)"
+        b for b in cfg.get("bausteine_achtung", []) if not b.upper().startswith("PASTE")
     ]
+    if cfg.get("shortcuts_lieferant") == ["Lieferant 1", "Lieferant 2"]:
+        cfg["shortcuts_lieferant"] = DEFAULT_CONFIG["shortcuts_lieferant"]
     if cfg.get("betreff") in ("", "Baugruppendaten Projekt {nr}"):
         cfg["betreff"] = DEFAULT_CONFIG["betreff"]
     return cfg
@@ -551,7 +559,6 @@ class MainWindow(QMainWindow):
         proj_box = QGroupBox("Projekt")
         pl = QGridLayout(proj_box)
         self.nr_edit = QLineEdit()
-        self.nr_edit.setPlaceholderText("z.B. 21156")
         self.nr_edit.setMaxLength(10)
         self.nr_edit.returnPressed.connect(self.search)
         self.search_btn = QPushButton("Suchen")
@@ -610,7 +617,6 @@ class MainWindow(QMainWindow):
         ig.addWidget(self.info_panel, 1, 1)
 
         self.termin_edit = QLineEdit()
-        self.termin_edit.setPlaceholderText("optional – wird in der Mail rot und fett")
         self.termin_edit.setStyleSheet("color: #c00000; font-weight: bold;")
         self.termin_edit.textChanged.connect(self.update_preview)
         ig.addWidget(QLabel("Liefertermin:"), 2, 0)
@@ -633,9 +639,13 @@ class MainWindow(QMainWindow):
         lp_row.addSpacing(12)
         lp_row.addWidget(QLabel("Anzahl:"))
         self.lp_anzahl = QLineEdit()
-        self.lp_anzahl.setFixedWidth(70)
+        self.lp_anzahl.setFixedWidth(60)
         self.lp_anzahl.textChanged.connect(self.update_preview)
         lp_row.addWidget(self.lp_anzahl)
+        self.lp_anzahl2 = QLineEdit()
+        self.lp_anzahl2.setFixedWidth(160)
+        self.lp_anzahl2.textChanged.connect(self.update_preview)
+        lp_row.addWidget(self.lp_anzahl2)
         lp_row.addStretch(1)
         ag.addWidget(QLabel("Art:"), r, 0)
         ag.addLayout(lp_row, r, 1)
@@ -669,6 +679,22 @@ class MainWindow(QMainWindow):
         self.bauteile_edit = QLineEdit()
         self.bauteile_edit.textChanged.connect(self.update_preview)
         ag.addWidget(self.bauteile_edit, r, 1)
+        r += 1
+
+        # Zusätze – jeder aktive wird ein eigener Aufzählungspunkt
+        zusatz_row = QHBoxLayout()
+        self.zusatz_buttons: list[tuple[QPushButton, str]] = []
+        for label, ausgabe in ZUSAETZE:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setMinimumWidth(70)
+            btn.setToolTip(ausgabe)
+            btn.setStyleSheet(TOGGLE_STYLE)
+            btn.toggled.connect(self.update_preview)
+            zusatz_row.addWidget(btn)
+            self.zusatz_buttons.append((btn, ausgabe))
+        zusatz_row.addStretch(1)
+        ag.addLayout(zusatz_row, r, 1)
         r += 1
 
         # Freitext
@@ -748,8 +774,9 @@ class MainWindow(QMainWindow):
         typ = self.lp_typ.value()
         if typ:
             teile.append(typ)
-        if self.lp_anzahl.text().strip():
-            teile.append(f"Anzahl: {self.lp_anzahl.text().strip()}")
+        anzahl = ", ".join(t for t in (self.lp_anzahl.text().strip(), self.lp_anzahl2.text().strip()) if t)
+        if anzahl:
+            teile.append(f"Anzahl: {anzahl}")
         if self.lieferant_edit.text().strip():
             teile.append(f"Lieferant: {self.lieferant_edit.text().strip()}")
         if self.sonst_edit.text().strip():
@@ -769,9 +796,12 @@ class MainWindow(QMainWindow):
         info: list[tuple[str, str]] = []
         modus = self.info_mode.value()
         if modus in INFO_TEXTE:
-            info.append(zeile(f"Bestellung {INFO_TEXTE[modus]}", f"Bestellung <b>{esc(INFO_TEXTE[modus])}</b>"))
+            info.append(zeile(f"Bestellung: {INFO_TEXTE[modus]}", f"Bestellung: <b>{esc(INFO_TEXTE[modus])}</b>"))
         elif modus == "Text":
-            info += [zeile(z) for z in self.info_edit.toPlainText().strip().splitlines()]
+            zeilen = self.info_edit.toPlainText().strip().splitlines()
+            if zeilen:
+                zeilen[0] = f"Bestellung: {zeilen[0]}"
+            info += [zeile(z) for z in zeilen]
         termin = self.termin_edit.text().strip()
         if termin:
             info.append(zeile(
@@ -788,6 +818,7 @@ class MainWindow(QMainWindow):
             punkte.append(f"Paste -> {self.paste.value()}")
         if self.bauteile_edit.text().strip():
             punkte.append(f"Bauteile -> {self.bauteile_edit.text().strip()}")
+        punkte += [ausgabe for btn, ausgabe in self.zusatz_buttons if btn.isChecked()]
         frei = as_bullets(self.warn_edit.toPlainText())
         punkte += [z[2:] for z in frei.splitlines()]
         if punkte:
@@ -965,13 +996,15 @@ class MainWindow(QMainWindow):
             self.update_preview()
 
     def clear(self):
-        for w in (self.nr_edit, self.path_edit, self.dev_edit, self.termin_edit, self.lp_anzahl,
+        for w in (self.nr_edit, self.path_edit, self.dev_edit, self.termin_edit, self.lp_anzahl, self.lp_anzahl2,
                   self.lieferant_edit, self.sonst_edit, self.bauteile_edit):
             w.clear()
         self.info_edit.clear()
         self.warn_edit.clear()
         self.lp_typ.set_value("")
         self.paste.set_value("")
+        for btn, _ in self.zusatz_buttons:
+            btn.setChecked(False)
         self.info_mode.set_value("PO")
         self.set_status("")
         self.nr_edit.setFocus()
