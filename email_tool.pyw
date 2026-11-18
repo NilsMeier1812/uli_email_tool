@@ -466,6 +466,29 @@ def save_to_sent(cfg: dict, password: str, msg: EmailMessage) -> str:
             pass
 
 
+_SPAN_RE = re.compile(r'<span style="([^"]*)">(.*?)</span>', re.S | re.I)
+
+
+def harden_html(html: str) -> str:
+    """Farbe/Fett zusätzlich als <font color>/<b> schreiben.
+
+    Viele Mailprogramme (z.B. Thunderbird "Vereinfachtes HTML", manche Webmailer)
+    entfernen style-Attribute – die alten HTML-Tags bleiben dagegen erhalten.
+    """
+
+    def ersetze(m: re.Match) -> str:
+        style, inhalt = m.group(1), m.group(2)
+        farbe = re.search(r"(?<![-\w])color\s*:\s*(#[0-9a-fA-F]{3,6})", style)
+        fett = re.search(r"font-weight\s*:\s*(bold|[6-9]00)", style)
+        if fett:
+            inhalt = f"<b>{inhalt}</b>"
+        if farbe:
+            inhalt = f'<font color="{farbe.group(1)}">{inhalt}</font>'
+        return f'<span style="{style}">{inhalt}</span>'
+
+    return _SPAN_RE.sub(ersetze, html)
+
+
 def send_mail(cfg: dict, password: str, to: list[str], cc: list[str], subject: str,
               body: str, html: str | None = None) -> EmailMessage:
     msg = EmailMessage()
@@ -478,6 +501,7 @@ def send_mail(cfg: dict, password: str, to: list[str], cc: list[str], subject: s
     msg["Message-ID"] = make_msgid()
     msg.set_content(body)
     if html:
+        html = harden_html(html)
         if not html.lstrip().lower().startswith(("<!doctype", "<html")):
             html = f"<html><body>{html}</body></html>"
         msg.add_alternative(html, subtype="html")
