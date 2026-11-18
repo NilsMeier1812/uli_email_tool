@@ -9,9 +9,21 @@ Kleines PyQt6-Tool, um die immer gleiche Email „Baugruppendaten liegen auf …
    `M:\Projekte_ab_20000\FEINMETALL\21156___G0056D-V01-J7-00126-PV_1191274\21156.01\Aktuell`
    (bei mehreren Treffern erscheint eine Auswahl, der Pfad kann auch von Hand angepasst werden)
 3. Optional **Entwickler** eintragen → steht im Betreff in Klammern hinter der Firma, z.B. `FEINMETALL (Müller)`
-4. **Info** wählen: `PO` (Bestellung gemäß PO), `Ang` (Bestellung gemäß Angebot) oder `Text` (eigenes Textfeld)
-5. **Achtung** ausfüllen – oder per Klick auf einen **Textbaustein-Button** einfügen.
-   Jede Zeile bei Achtung wird in der Mail automatisch ein Aufzählungspunkt (`- `). Leeres Achtung-Feld → Abschnitt entfällt.
+4. **Info**: `PO` / `Ang` (→ „Bestellung **gemäß PO** / **gemäß Angebot**“) oder `Text` (eigenes Textfeld),
+   optional **Liefertermin** (in der Mail rot und fett)
+5. **Achtung** – wird in der Mail zur Aufzählung:
+   - **LP**: Einzel-LP / Nutzen, Anzahl, Lieferant (mit Shortcut-Buttons), Sonstiges (z.B. „Daten sind bei Hersteller“)
+   - **Paste**: von M / Hersteller / Keine
+   - **Bauteile**: Freitext
+   - **Freitext**: jede Zeile ein eigener Punkt
+
+   Ergebnis z.B.:
+   ```
+   - LP -> Nutzen, Anzahl: 4, Lieferant: XY, Daten sind bei Hersteller
+   - Paste -> von M
+   - Bauteile -> ...
+   - ...
+   ```
 6. **Senden** – die Mail geht direkt über SMTP raus
 
 ## Installation (Windows)
@@ -29,6 +41,8 @@ Beim ersten Mal unter **Einstellungen…** eintragen:
 - Passwort wird über `keyring` im Windows-Anmeldeinformationsspeicher abgelegt – nicht im Klartext
 
 Die Einstellungen landen in `config.json` neben dem Programm (nicht im Git).
-Textbausteine für Info und Achtung legst du unter **Einstellungen → Textbausteine** an (ein Baustein pro Zeile).
+Shortcut-Buttons (Lieferant, Sonstiges, Freitext, Info-Text) legst du unter **Einstellungen → Textbausteine** an (ein Eintrag pro Zeile).
+
+Die Mail wird als HTML (fett/rot) mit Nur-Text-Alternative verschickt.
 
 Betreff (Platzhalter `{nr}`, `{firma}`, `{board}`; Standard: `PN{nr} / Baugruppendaten {firma} {board} / {nr} sind auf M`), Anrede und Gruß sind dort ebenfalls änderbar.

@@ -6,6 +6,7 @@ Start ohne Konsolenfenster:  pythonw email_tool.pyw   (oder Doppelklick)
 from __future__ import annotations
 
 import json
+from html import escape as esc
 import smtplib
 import ssl
 import sys
@@ -23,6 +24,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
@@ -34,6 +36,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -63,10 +66,12 @@ def resource_path(name: str) -> Path:
 
 CONFIG_FILE = app_dir() / "config.json"
 
-INFO_TEXTE = {
-    "PO": "Bestellung gemäß PO",
-    "Ang": "Bestellung gemäß Angebot",
+INFO_TEXTE = {  # erscheint als "Bestellung <b>gemäß …</b>"
+    "PO": "gemäß PO",
+    "Ang": "gemäß Angebot",
 }
+
+TOGGLE_STYLE = "QPushButton:checked { background: #206ec8; color: white; font-weight: bold; }"
 
 DEFAULT_CONFIG = {
     "projekt_basis": r"M:\Projekte_ab_20000",
@@ -83,7 +88,10 @@ DEFAULT_CONFIG = {
     "gruss": "VG\nUli",
     # Textbausteine (Buttons unter den Textfeldern)
     "bausteine_info": [],
-    "bausteine_achtung": ["PASTE -> aktuell (TOP/BOTTOM)"],
+    "bausteine_achtung": [],
+    # Buttons neben den Feldern im Bereich LP
+    "shortcuts_lieferant": ["Lieferant 1", "Lieferant 2"],
+    "shortcuts_sonstiges": ["Daten sind bei Hersteller"],
 }
 
 
@@ -99,6 +107,10 @@ def load_config() -> dict:
         cfg["empfaenger"] = DEFAULT_CONFIG["empfaenger"]
     # "Bestellung gemäß PO" ist jetzt ein eigener Schalter
     cfg["bausteine_info"] = [b for b in cfg.get("bausteine_info", []) if b != "Bestellung gemäß PO"]
+    # Paste hat jetzt einen eigenen Bereich
+    cfg["bausteine_achtung"] = [
+        b for b in cfg.get("bausteine_achtung", []) if b != "PASTE -> aktuell (TOP/BOTTOM)"
+    ]
     if cfg.get("betreff") in ("", "Baugruppendaten Projekt {nr}"):
         cfg["betreff"] = DEFAULT_CONFIG["betreff"]
     return cfg
@@ -192,7 +204,8 @@ def split_addresses(text: str) -> list[str]:
     return [a.strip() for a in text.replace(",", ";").split(";") if a.strip()]
 
 
-def send_mail(cfg: dict, password: str, to: list[str], cc: list[str], subject: str, body: str):
+def send_mail(cfg: dict, password: str, to: list[str], cc: list[str], subject: str,
+              body: str, html: str | None = None):
     msg = EmailMessage()
     msg["From"] = cfg["absender"]
     msg["To"] = ", ".join(to)
@@ -202,6 +215,8 @@ def send_mail(cfg: dict, password: str, to: list[str], cc: list[str], subject: s
     msg["Date"] = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid()
     msg.set_content(body)
+    if html:
+        msg.add_alternative(f"<html><body>{html}</body></html>", subtype="html")
 
     ctx = ssl.create_default_context()
     host, port, sec = cfg["smtp_server"], int(cfg["smtp_port"]), cfg["smtp_security"]
@@ -323,6 +338,18 @@ def append_line(edit: QPlainTextEdit, text: str):
     edit.setFocus()
 
 
+def append_inline(edit: QLineEdit, text: str):
+    """Hängt Text mit ', ' an ein einzeiliges Feld an."""
+    vorhanden = edit.text().strip()
+    edit.setText(f"{vorhanden}, {text}" if vorhanden else text)
+    edit.setFocus()
+
+
+def bold_label(text: str) -> QLabel:
+    lbl = QLabel(f"<b>{text}</b>")
+    return lbl
+
+
 class SettingsDialog(QDialog):
     def __init__(self, cfg: dict, parent=None):
         super().__init__(parent)
@@ -373,8 +400,14 @@ class SettingsDialog(QDialog):
         self.bs_info.setFixedHeight(80)
         self.bs_achtung = QPlainTextEdit("\n".join(cfg["bausteine_achtung"]))
         self.bs_achtung.setFixedHeight(80)
+        self.sc_lieferant = QPlainTextEdit("\n".join(cfg["shortcuts_lieferant"]))
+        self.sc_lieferant.setFixedHeight(60)
+        self.sc_sonst = QPlainTextEdit("\n".join(cfg["shortcuts_sonstiges"]))
+        self.sc_sonst.setFixedHeight(60)
         form.addRow("Info (Modus Text):", self.bs_info)
-        form.addRow("Achtung:", self.bs_achtung)
+        form.addRow("LP → Lieferant:", self.sc_lieferant)
+        form.addRow("LP → Sonstiges:", self.sc_sonst)
+        form.addRow("Achtung → Freitext:", self.bs_achtung)
 
         test_btn = QPushButton("Verbindung zum Server testen")
         test_btn.clicked.connect(self.test_connection)
@@ -406,6 +439,8 @@ class SettingsDialog(QDialog):
             "gruss": self.gruss.toPlainText(),
             "bausteine_info": [z.strip() for z in self.bs_info.toPlainText().splitlines() if z.strip()],
             "bausteine_achtung": [z.strip() for z in self.bs_achtung.toPlainText().splitlines() if z.strip()],
+            "shortcuts_lieferant": [z.strip() for z in self.sc_lieferant.toPlainText().splitlines() if z.strip()],
+            "shortcuts_sonstiges": [z.strip() for z in self.sc_sonst.toPlainText().splitlines() if z.strip()],
         }
 
     def test_connection(self):
@@ -438,6 +473,59 @@ class SettingsDialog(QDialog):
         super().accept()
 
 
+class ToggleRow(QWidget):
+    """Reihe von Umschalt-Buttons, von denen höchstens einer aktiv ist.
+
+    allow_none=True: erneuter Klick auf den aktiven Button hebt die Auswahl auf.
+    """
+
+    changed = pyqtSignal()
+
+    def __init__(self, labels: list[str], allow_none: bool = True, parent=None):
+        super().__init__(parent)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.allow_none = allow_none
+        self.buttons: list[QPushButton] = []
+        for text in labels:
+            btn = QPushButton(text)
+            btn.setCheckable(True)
+            btn.setMinimumWidth(70)
+            btn.setStyleSheet(TOGGLE_STYLE)
+            btn.clicked.connect(lambda checked, b=btn: self._clicked(b, checked))
+            lay.addWidget(btn)
+            self.buttons.append(btn)
+        lay.addStretch(1)
+
+    def _clicked(self, btn: QPushButton, checked: bool):
+        if checked:
+            for other in self.buttons:
+                if other is not btn:
+                    other.setChecked(False)
+        elif not self.allow_none:
+            btn.setChecked(True)
+        self.changed.emit()
+
+    def value(self) -> str:
+        for b in self.buttons:
+            if b.isChecked():
+                return b.text()
+        return ""
+
+    def set_value(self, text: str):
+        for b in self.buttons:
+            b.setChecked(b.text() == text)
+        self.changed.emit()
+
+
+def shortcut_button(text: str, slot) -> QPushButton:
+    btn = QPushButton(text)
+    btn.setToolTip(f"„{text}“ einfügen")
+    btn.setStyleSheet("padding: 2px 8px;")
+    btn.clicked.connect(lambda: slot(text))
+    return btn
+
+
 # --------------------------------------------------------------------------- #
 # Hauptfenster
 # --------------------------------------------------------------------------- #
@@ -451,48 +539,45 @@ class MainWindow(QMainWindow):
 
         central = QWidget()
         self.setCentralWidget(central)
-        root = QVBoxLayout(central)
+        outer = QVBoxLayout(central)
+        columns = QHBoxLayout()
+        outer.addLayout(columns, 1)
+        left_w = QWidget()
+        root = QVBoxLayout(left_w)
+        root.setContentsMargins(0, 0, 0, 0)
+        columns.addWidget(left_w, 5)
 
         # --- Projekt ---
         proj_box = QGroupBox("Projekt")
-        pl = QVBoxLayout(proj_box)
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Projektnummer:"))
+        pl = QGridLayout(proj_box)
         self.nr_edit = QLineEdit()
         self.nr_edit.setPlaceholderText("z.B. 21156")
         self.nr_edit.setMaxLength(10)
         self.nr_edit.returnPressed.connect(self.search)
-        row.addWidget(self.nr_edit, 1)
         self.search_btn = QPushButton("Suchen")
         self.search_btn.clicked.connect(self.search)
-        row.addWidget(self.search_btn)
-        pl.addLayout(row)
+        pl.addWidget(QLabel("Projektnummer:"), 0, 0)
+        pl.addWidget(self.nr_edit, 0, 1)
+        pl.addWidget(self.search_btn, 0, 2)
 
-        row2 = QHBoxLayout()
-        row2.addWidget(QLabel("Pfad:"))
         self.path_edit = QLineEdit()
         self.path_edit.setPlaceholderText("wird nach der Suche gefüllt (kann auch angepasst werden)")
         self.path_edit.textChanged.connect(self.update_preview)
         self.path_edit.textChanged.connect(self.update_subject)
-        row2.addWidget(self.path_edit, 1)
         copy_btn = QPushButton("Kopieren")
         copy_btn.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.path_edit.text()))
-        row2.addWidget(copy_btn)
-        pl.addLayout(row2)
+        pl.addWidget(QLabel("Pfad:"), 1, 0)
+        pl.addWidget(self.path_edit, 1, 1)
+        pl.addWidget(copy_btn, 1, 2)
 
-        row3 = QHBoxLayout()
-        row3.addWidget(QLabel("Entwickler:"))
         self.dev_edit = QLineEdit()
         self.dev_edit.setPlaceholderText("optional – erscheint im Betreff in Klammern hinter der Firma")
         self.dev_edit.textChanged.connect(self.update_subject)
-        row3.addWidget(self.dev_edit, 1)
-        pl.addLayout(row3)
+        pl.addWidget(QLabel("Entwickler:"), 2, 0)
+        pl.addWidget(self.dev_edit, 2, 1, 1, 2)
         self.status_lbl = QLabel("")
-        pl.addWidget(self.status_lbl)
+        pl.addWidget(self.status_lbl, 3, 0, 1, 3)
         root.addWidget(proj_box)
-
-        for lay in (row, row2, row3):
-            lay.itemAt(0).widget().setMinimumWidth(95)
 
         # --- Empfänger ---
         mail_box = QGroupBox("Email")
@@ -505,70 +590,112 @@ class MainWindow(QMainWindow):
         ml.addRow("Betreff:", self.subject_edit)
         root.addWidget(mail_box)
 
-        # --- Texte ---
-        txt_row = QHBoxLayout()
+        # --- Info ---
         info_box = QGroupBox("Info")
-        ib = QVBoxLayout(info_box)
-        mode_row = QHBoxLayout()
-        self.info_mode = QButtonGroup(self)
-        self.info_mode.setExclusive(True)
-        for text, tip in (
-            ("PO", INFO_TEXTE["PO"]),
-            ("Ang", INFO_TEXTE["Ang"]),
-            ("Text", "Eigenen Text schreiben"),
-        ):
-            btn = QPushButton(text)
-            btn.setCheckable(True)
-            btn.setToolTip(tip)
-            btn.setMinimumWidth(60)
-            btn.setStyleSheet(
-                "QPushButton:checked { background: #206ec8; color: white; font-weight: bold; }"
-            )
-            self.info_mode.addButton(btn)
-            mode_row.addWidget(btn)
-        mode_row.addStretch(1)
-        ib.addLayout(mode_row)
-        self.info_mode_label = QLabel()
-        self.info_mode_label.setStyleSheet("color: gray;")
-        ib.addWidget(self.info_mode_label)
+        ig = QGridLayout(info_box)
+        self.info_mode = ToggleRow(["PO", "Ang", "Text"], allow_none=False)
+        self.info_mode.changed.connect(self.info_mode_changed)
+        ig.addWidget(QLabel("Bestellung:"), 0, 0)
+        ig.addWidget(self.info_mode, 0, 1)
 
-        # Textfeld nur im Modus "Text"
         self.info_panel = QWidget()
         il = QVBoxLayout(self.info_panel)
         il.setContentsMargins(0, 0, 0, 0)
         self.info_edit = QPlainTextEdit()
-        self.info_edit.setFixedHeight(4 * self.info_edit.fontMetrics().lineSpacing() + 14)
+        self.info_edit.setFixedHeight(3 * self.info_edit.fontMetrics().lineSpacing() + 14)
         self.info_edit.textChanged.connect(self.update_preview)
         il.addWidget(self.info_edit)
         self.info_layout = il
         self.info_buttons: QWidget | None = None
-        ib.addWidget(self.info_panel)
-        ib.addStretch(1)
-        txt_row.addWidget(info_box, 2)
-        self.info_mode.buttonToggled.connect(self.info_mode_changed)
+        ig.addWidget(self.info_panel, 1, 1)
 
-        warn_box = QGroupBox("Achtung (jede Zeile wird ein Aufzählungspunkt)")
-        wl = QVBoxLayout(warn_box)
+        self.termin_edit = QLineEdit()
+        self.termin_edit.setPlaceholderText("optional – wird in der Mail rot und fett")
+        self.termin_edit.setStyleSheet("color: #c00000; font-weight: bold;")
+        self.termin_edit.textChanged.connect(self.update_preview)
+        ig.addWidget(QLabel("Liefertermin:"), 2, 0)
+        ig.addWidget(self.termin_edit, 2, 1)
+        root.addWidget(info_box)
+
+        # --- Achtung ---
+        warn_box = QGroupBox("Achtung")
+        ag = QGridLayout(warn_box)
+        ag.setColumnStretch(1, 1)
+        r = 0
+
+        # LP
+        ag.addWidget(bold_label("LP"), r, 0, 1, 2)
+        r += 1
+        lp_row = QHBoxLayout()
+        self.lp_typ = ToggleRow(["Einzel-LP", "Nutzen"])
+        self.lp_typ.changed.connect(self.update_preview)
+        lp_row.addWidget(self.lp_typ)
+        lp_row.addSpacing(12)
+        lp_row.addWidget(QLabel("Anzahl:"))
+        self.lp_anzahl = QLineEdit()
+        self.lp_anzahl.setFixedWidth(70)
+        self.lp_anzahl.textChanged.connect(self.update_preview)
+        lp_row.addWidget(self.lp_anzahl)
+        lp_row.addStretch(1)
+        ag.addWidget(QLabel("Art:"), r, 0)
+        ag.addLayout(lp_row, r, 1)
+        r += 1
+
+        self.lieferant_edit = QLineEdit()
+        self.lieferant_edit.textChanged.connect(self.update_preview)
+        self.lieferant_row = QHBoxLayout()
+        self.lieferant_row.addWidget(self.lieferant_edit, 1)
+        ag.addWidget(QLabel("Lieferant:"), r, 0)
+        ag.addLayout(self.lieferant_row, r, 1)
+        r += 1
+
+        self.sonst_edit = QLineEdit()
+        self.sonst_edit.textChanged.connect(self.update_preview)
+        self.sonst_row = QHBoxLayout()
+        self.sonst_row.addWidget(self.sonst_edit, 1)
+        ag.addWidget(QLabel("Sonstiges:"), r, 0)
+        ag.addLayout(self.sonst_row, r, 1)
+        r += 1
+
+        # Paste
+        ag.addWidget(bold_label("Paste"), r, 0)
+        self.paste = ToggleRow(["von M", "Hersteller", "Keine"])
+        self.paste.changed.connect(self.update_preview)
+        ag.addWidget(self.paste, r, 1)
+        r += 1
+
+        # Bauteile
+        ag.addWidget(bold_label("Bauteile"), r, 0)
+        self.bauteile_edit = QLineEdit()
+        self.bauteile_edit.textChanged.connect(self.update_preview)
+        ag.addWidget(self.bauteile_edit, r, 1)
+        r += 1
+
+        # Freitext
+        ag.addWidget(bold_label("Freitext"), r, 0, Qt.AlignmentFlag.AlignTop)
+        frei = QVBoxLayout()
         self.warn_edit = QPlainTextEdit()
+        self.warn_edit.setPlaceholderText("jede Zeile wird ein eigener Aufzählungspunkt")
+        self.warn_edit.setFixedHeight(4 * self.warn_edit.fontMetrics().lineSpacing() + 14)
         self.warn_edit.textChanged.connect(self.update_preview)
-        wl.addWidget(self.warn_edit, 1)
-        self.warn_layout = wl
+        frei.addWidget(self.warn_edit)
+        self.warn_layout = frei
         self.warn_buttons: QWidget | None = None
-        txt_row.addWidget(warn_box, 3)
-        root.addLayout(txt_row, 2)
+        ag.addLayout(frei, r, 1)
+        root.addWidget(warn_box)
+        root.addStretch(1)
+
+        self.lieferant_shortcuts: QWidget | None = None
+        self.sonst_shortcuts: QWidget | None = None
         self.build_baustein_buttons()
 
-        # --- Vorschau ---
+        # --- Vorschau (rechts) ---
         prev_box = QGroupBox("Vorschau")
         prl = QVBoxLayout(prev_box)
-        self.preview = QPlainTextEdit()
-        self.preview.setReadOnly(True)
-        self.preview.setFont(QFont("Consolas", 10))
+        self.preview = QTextBrowser()
+        self.preview.setOpenLinks(False)
         prl.addWidget(self.preview)
-        # Platz für ca. 20 Zeilen, damit eine normale Mail komplett sichtbar ist
-        zeile = self.preview.fontMetrics().lineSpacing()
-        self.preview.setMinimumHeight(20 * zeile + 12)
-        root.addWidget(prev_box, 3)
+        columns.addWidget(prev_box, 4)
 
         # --- Buttons ---
         btn_row = QHBoxLayout()
@@ -580,20 +707,17 @@ class MainWindow(QMainWindow):
         clear_btn.clicked.connect(self.clear)
         btn_row.addWidget(clear_btn)
         self.send_btn = QPushButton("Senden")
-        self.send_btn.setDefault(False)
         self.send_btn.setMinimumWidth(120)
         self.send_btn.setStyleSheet("font-weight: bold;")
         self.send_btn.clicked.connect(self.send)
         btn_row.addWidget(self.send_btn)
-        root.addLayout(btn_row)
+        outer.addLayout(btn_row)
 
         self.nr_edit.textChanged.connect(self.update_subject)
+        self.info_mode.set_value("PO")
         self.update_subject()
-        self.update_preview()
-        self.info_mode.buttons()[0].setChecked(True)  # Standard: PO
-        self.warn_edit.setMinimumHeight(70)
         screen = QGuiApplication.primaryScreen().availableGeometry()
-        self.resize(min(960, screen.width() - 40), min(1000, screen.height() - 60))
+        self.resize(min(1400, screen.width() - 40), min(900, screen.height() - 60))
 
     # ----- Hilfen -----
     def nr(self) -> str:
@@ -612,42 +736,77 @@ class MainWindow(QMainWindow):
         )
         self.subject_edit.setText(" ".join(betreff.split()))
 
-    def info_mode_name(self) -> str:
-        btn = self.info_mode.checkedButton()
-        return btn.text() if btn else "PO"
-
-    def info_mode_changed(self, *_):
-        modus = self.info_mode_name()
+    def info_mode_changed(self):
+        modus = self.info_mode.value()
         self.info_panel.setVisible(modus == "Text")
-        self.info_mode_label.setVisible(modus != "Text")
-        self.info_mode_label.setText(INFO_TEXTE.get(modus, ""))
         if modus == "Text":
             self.info_edit.setFocus()
         self.update_preview()
 
-    def info_text(self) -> str:
-        modus = self.info_mode_name()
-        if modus == "Text":
-            return self.info_edit.toPlainText().strip()
-        return INFO_TEXTE[modus]
+    def lp_text(self) -> str:
+        teile = []
+        typ = self.lp_typ.value()
+        if typ:
+            teile.append(typ)
+        if self.lp_anzahl.text().strip():
+            teile.append(f"Anzahl: {self.lp_anzahl.text().strip()}")
+        if self.lieferant_edit.text().strip():
+            teile.append(f"Lieferant: {self.lieferant_edit.text().strip()}")
+        if self.sonst_edit.text().strip():
+            teile.append(self.sonst_edit.text().strip())
+        return ", ".join(teile)
 
-    def build_body(self) -> str:
-        teile = [
-            self.cfg["anrede"],
-            "",
-            f"Die Baugruppendaten für das Board sind auf {self.path_edit.text().strip()}",
-        ]
-        info = self.info_text()
+    def build_mail(self) -> tuple[str, str]:
+        """Liefert (Text, HTML) der Mail."""
+        absaetze: list[list[tuple[str, str]]] = []  # Absätze aus Zeilen (text, html)
+
+        def zeile(text: str, html: str | None = None) -> tuple[str, str]:
+            return text, html if html is not None else esc(text)
+
+        absaetze.append([zeile(self.cfg["anrede"])])
+        absaetze.append([zeile(f"Die Baugruppendaten für das Board sind auf {self.path_edit.text().strip()}")])
+
+        info: list[tuple[str, str]] = []
+        modus = self.info_mode.value()
+        if modus in INFO_TEXTE:
+            info.append(zeile(f"Bestellung {INFO_TEXTE[modus]}", f"Bestellung <b>{esc(INFO_TEXTE[modus])}</b>"))
+        elif modus == "Text":
+            info += [zeile(z) for z in self.info_edit.toPlainText().strip().splitlines()]
+        termin = self.termin_edit.text().strip()
+        if termin:
+            info.append(zeile(
+                f"Liefertermin: {termin}",
+                f'<span style="color:#c00000;font-weight:bold">Liefertermin: {esc(termin)}</span>',
+            ))
         if info:
-            teile += ["", info]
-        achtung = as_bullets(self.warn_edit.toPlainText())
-        if achtung:
-            teile += ["", "Achtung:", "", achtung]
-        teile += ["", self.cfg["gruss"]]
-        return "\n".join(teile)
+            absaetze.append(info)
+
+        punkte: list[str] = []
+        if self.lp_text():
+            punkte.append(f"LP -> {self.lp_text()}")
+        if self.paste.value():
+            punkte.append(f"Paste -> {self.paste.value()}")
+        if self.bauteile_edit.text().strip():
+            punkte.append(f"Bauteile -> {self.bauteile_edit.text().strip()}")
+        frei = as_bullets(self.warn_edit.toPlainText())
+        punkte += [z[2:] for z in frei.splitlines()]
+        if punkte:
+            absaetze.append([zeile("Achtung:")])
+            absaetze.append([zeile(f"- {p}") for p in punkte])
+
+        absaetze.append([zeile(z) for z in self.cfg["gruss"].splitlines()])
+
+        text = "\n\n".join("\n".join(t for t, _ in a) for a in absaetze)
+        html = (
+            '<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">'
+            + "<br><br>".join("<br>".join(h for _, h in a) for a in absaetze)
+            + "</div>"
+        )
+        return text, html
 
     def update_preview(self):
-        self.preview.setPlainText(self.build_body())
+        if hasattr(self, "preview"):
+            self.preview.setHtml(self.build_mail()[1])
 
     def set_status(self, text: str, ok: bool | None = None):
         color = {True: "green", False: "#c00000", None: "gray"}[ok]
@@ -701,7 +860,7 @@ class MainWindow(QMainWindow):
             self.set_status("Ordner gefunden.", True)
         else:
             self.set_status("Projekt gefunden, aber der Ordner 'Aktuell' existiert (noch) nicht!", False)
-        self.info_edit.setFocus()
+        self.dev_edit.setFocus()
 
     # ----- Senden -----
     def send(self):
@@ -741,7 +900,8 @@ class MainWindow(QMainWindow):
 
         self.send_btn.setEnabled(False)
         self.set_status("Sende Email …")
-        worker = SendWorker(cfg, password or "", to, cc, self.subject_edit.text(), self.build_body())
+        text, html = self.build_mail()
+        worker = SendWorker(cfg, password or "", to, cc, self.subject_edit.text(), text, html)
         worker.finished.connect(self.send_done)
         worker.failed.connect(self.send_failed)
         self.run_worker(worker)
@@ -757,27 +917,41 @@ class MainWindow(QMainWindow):
         self.set_status("Senden fehlgeschlagen.", False)
         QMessageBox.critical(self, "Fehler beim Senden", err)
 
-    # ----- Textbausteine -----
+    # ----- Textbausteine / Shortcuts -----
+    def _replace_container(self, attr: str, layout, widget: QWidget):
+        alt = getattr(self, attr)
+        if alt is not None:
+            layout.removeWidget(alt)
+            alt.hide()
+            alt.deleteLater()
+        layout.addWidget(widget)
+        setattr(self, attr, widget)
+
     def build_baustein_buttons(self):
+        # Flow-Buttons unter den Textfeldern (Info-Text, Freitext)
         for attr, box, edit, key in (
             ("info_buttons", self.info_layout, self.info_edit, "bausteine_info"),
             ("warn_buttons", self.warn_layout, self.warn_edit, "bausteine_achtung"),
         ):
-            alt = getattr(self, attr)
-            if alt is not None:
-                box.removeWidget(alt)
-                alt.hide()
-                alt.deleteLater()
             container = QWidget()
-            layout = FlowLayout(container)
-            box.addWidget(container)
-            setattr(self, attr, container)
+            flow = FlowLayout(container)
             for text in self.cfg.get(key, []):
-                btn = QPushButton(text)
-                btn.setToolTip(f"„{text}“ einfügen")
-                btn.setStyleSheet("padding: 2px 8px;")
-                btn.clicked.connect(lambda _=False, e=edit, t=text: append_line(e, t))
-                layout.addWidget(btn)
+                flow.addWidget(shortcut_button(text, lambda t, e=edit: append_line(e, t)))
+            self._replace_container(attr, box, container)
+
+        # Buttons rechts neben Lieferant / Sonstiges
+        for attr, row, key, slot in (
+            ("lieferant_shortcuts", self.lieferant_row, "shortcuts_lieferant",
+             lambda t: self.lieferant_edit.setText(t)),
+            ("sonst_shortcuts", self.sonst_row, "shortcuts_sonstiges",
+             lambda t: append_inline(self.sonst_edit, t)),
+        ):
+            container = QWidget()
+            hl = QHBoxLayout(container)
+            hl.setContentsMargins(0, 0, 0, 0)
+            for text in self.cfg.get(key, []):
+                hl.addWidget(shortcut_button(text, slot))
+            self._replace_container(attr, row, container)
 
     # ----- Sonstiges -----
     def open_settings(self):
@@ -791,12 +965,14 @@ class MainWindow(QMainWindow):
             self.update_preview()
 
     def clear(self):
-        self.nr_edit.clear()
-        self.path_edit.clear()
-        self.dev_edit.clear()
+        for w in (self.nr_edit, self.path_edit, self.dev_edit, self.termin_edit, self.lp_anzahl,
+                  self.lieferant_edit, self.sonst_edit, self.bauteile_edit):
+            w.clear()
         self.info_edit.clear()
-        self.info_mode.buttons()[0].setChecked(True)
         self.warn_edit.clear()
+        self.lp_typ.set_value("")
+        self.paste.set_value("")
+        self.info_mode.set_value("PO")
         self.set_status("")
         self.nr_edit.setFocus()
 
