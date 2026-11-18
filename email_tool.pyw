@@ -693,7 +693,11 @@ class MainWindow(QMainWindow):
             btn.toggled.connect(self.update_preview)
             zusatz_row.addWidget(btn)
             self.zusatz_buttons.append((btn, ausgabe))
-        zusatz_row.addStretch(1)
+        # Textfeld zu "Beist" – Tippen aktiviert den Schalter automatisch
+        self.beist_btn = self.zusatz_buttons[-1][0]
+        self.beist_edit = QLineEdit()
+        self.beist_edit.textChanged.connect(self.beist_text_changed)
+        zusatz_row.addWidget(self.beist_edit, 1)
         ag.addLayout(zusatz_row, r, 1)
         r += 1
 
@@ -769,6 +773,12 @@ class MainWindow(QMainWindow):
             self.info_edit.setFocus()
         self.update_preview()
 
+    def beist_text_changed(self, text: str):
+        if text.strip() and not self.beist_btn.isChecked():
+            self.beist_btn.setChecked(True)  # löst update_preview aus
+        else:
+            self.update_preview()
+
     def lp_text(self) -> str:
         teile = []
         typ = self.lp_typ.value()
@@ -818,7 +828,12 @@ class MainWindow(QMainWindow):
             punkte.append(f"Paste -> {self.paste.value()}")
         if self.bauteile_edit.text().strip():
             punkte.append(f"Bauteile -> {self.bauteile_edit.text().strip()}")
-        punkte += [ausgabe for btn, ausgabe in self.zusatz_buttons if btn.isChecked()]
+        for btn, ausgabe in self.zusatz_buttons:
+            if not btn.isChecked():
+                continue
+            if btn is self.beist_btn and self.beist_edit.text().strip():
+                ausgabe = f"{ausgabe} -> {self.beist_edit.text().strip()}"
+            punkte.append(ausgabe)
         frei = as_bullets(self.warn_edit.toPlainText())
         punkte += [z[2:] for z in frei.splitlines()]
         if punkte:
@@ -997,7 +1012,7 @@ class MainWindow(QMainWindow):
 
     def clear(self):
         for w in (self.nr_edit, self.path_edit, self.dev_edit, self.termin_edit, self.lp_anzahl, self.lp_anzahl2,
-                  self.lieferant_edit, self.sonst_edit, self.bauteile_edit):
+                  self.lieferant_edit, self.sonst_edit, self.bauteile_edit, self.beist_edit):
             w.clear()
         self.info_edit.clear()
         self.warn_edit.clear()

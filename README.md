@@ -15,7 +15,7 @@ Kleines PyQt6-Tool, um die immer gleiche Email „Baugruppendaten liegen auf …
    - **LP**: Einzel-LP / Nutzen, Anzahl (zwei Felder, z.B. `10` + `5er mit Rand`), Lieferant (mit Shortcut-Buttons), Sonstiges (z.B. „Daten sind bei Hersteller“)
    - **Paste**: von M / Hersteller / Keine
    - **Bauteile**: Freitext
-   - Schalter **US** (US Reinigung), **Lasertrennung**, **Beist** (Beistellung) – je ein eigener Punkt
+   - Schalter **US** (US Reinigung), **Lasertrennung**, **Beist** (Beistellung, mit Textfeld → `Beistellung -> ...`) – je ein eigener Punkt
    - **Freitext**: jede Zeile ein eigener Punkt
 
    Ergebnis z.B.:
