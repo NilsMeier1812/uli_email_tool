@@ -13,7 +13,7 @@ Kleines PyQt6-Tool, um die immer gleiche Email „Baugruppendaten liegen auf …
    - PO + Text → „Bestellung: **gemäß PO**, Text“ · nur PO → „Bestellung: **gemäß PO**“ · nur Text → „Bestellung: Text“
    - optional **Liefertermin** (in der Mail rot und fett)
 5. **Achtung** – wird in der Mail zur Aufzählung:
-   - **LP**: Einzel-LP / Nutzen, Anzahl (zwei Felder, z.B. `10` + `5er mit Rand`), Lieferant (mit Shortcut-Buttons), Sonstiges (z.B. „Daten sind bei Hersteller“)
+   - **LP**: Einzel-LP / Nutzen, Anzahl (zwei Felder, z.B. `10` + `5er mit Rand`), Lieferant (mit Shortcut-Buttons Fima, KC, Piu, Zeroone), Sonstiges (z.B. „Daten sind bei Hersteller“)
    - **Paste**: von M / Hersteller / Keine
    - **Bauteile**: Freitext (Shortcut „BOM“)
    - Schalter **US** (US Reinigung), **Lasertrennung**, **Beist** (Beistellung, mit Textfeld → `Beistellung -> ...`) – je ein eigener Punkt

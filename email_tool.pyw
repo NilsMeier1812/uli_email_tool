@@ -185,8 +185,10 @@ QPushButton[role="chip"]:hover { border: 1px solid ACCENT; color: ACCENT; backgr
 QPushButton[role="chip"]:pressed { background: #e2e8f0; }
 
 /* Vorschau */
-QWidget#editbar { background: #fef3c7; border: 1px solid #fde68a; border-radius: 8px; }
-QWidget#editbar QLabel { color: #92400e; font-size: 9pt; }
+QWidget#editbar { background: #eff6ff; border: 1px solid #dbeafe; border-radius: 8px; }
+QWidget#editbar QLabel { color: #1e40af; font-size: 9pt; }
+QWidget#editbar QPushButton { color: ACCENT; font-weight: 600; }
+QWidget#editbar QPushButton:hover { background: #dbeafe; }
 QTextEdit#preview {
     background: #ffffff;
     border: none;
@@ -225,6 +227,8 @@ ICON_PATHS = {
                 'a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09'
                 'a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25'
                 'a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    "pencil": '<path d="M21.17 6.81a1 1 0 0 0-3.98-3.98L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35'
+              'a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/>',
     "plus": '<path d="M12 5v14"/><path d="M5 12h14"/>',
     "plug": '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/>'
             '<path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
@@ -286,7 +290,7 @@ DEFAULT_CONFIG = {
     "bausteine_info": [],
     "bausteine_achtung": [],
     # Buttons neben den Feldern im Bereich LP
-    "shortcuts_lieferant": ["Fima", "KC", "Piu"],
+    "shortcuts_lieferant": ["Fima", "KC", "Piu", "Zeroone"],
     "shortcuts_sonstiges": ["Daten sind bei Hersteller"],
     "shortcuts_bauteile": ["BOM"],
 }
@@ -308,7 +312,7 @@ def load_config() -> dict:
     cfg["bausteine_achtung"] = [
         b for b in cfg.get("bausteine_achtung", []) if not b.upper().startswith("PASTE")
     ]
-    if cfg.get("shortcuts_lieferant") == ["Lieferant 1", "Lieferant 2"]:
+    if cfg.get("shortcuts_lieferant") in (["Lieferant 1", "Lieferant 2"], ["Fima", "KC", "Piu"]):
         cfg["shortcuts_lieferant"] = DEFAULT_CONFIG["shortcuts_lieferant"]
     if cfg.get("betreff") in ("", "Baugruppendaten Projekt {nr}"):
         cfg["betreff"] = DEFAULT_CONFIG["betreff"]
@@ -1089,11 +1093,15 @@ class MainWindow(QMainWindow):
         self.edit_bar = QWidget()
         self.edit_bar.setObjectName("editbar")
         eb = QHBoxLayout(self.edit_bar)
-        eb.setContentsMargins(12, 6, 6, 6)
+        eb.setContentsMargins(10, 6, 6, 6)
+        eb.setSpacing(8)
+        eb_icon = QLabel()
+        eb_icon.setPixmap(icon("pencil", ACCENT, 16).pixmap(16, 16))
+        eb.addWidget(eb_icon, 0, Qt.AlignmentFlag.AlignVCenter)
         eb_lbl = QLabel("Von Hand bearbeitet – Änderungen an den Feldern werden nicht mehr übernommen.")
         eb_lbl.setWordWrap(True)
         eb.addWidget(eb_lbl, 1)
-        reset_btn = with_icon(set_role(QPushButton("  Neu aus Feldern"), "ghost"), "reset")
+        reset_btn = with_icon(set_role(QPushButton("  Neu aus Feldern"), "ghost"), "reset", ACCENT)
         reset_btn.clicked.connect(self.reset_preview)
         eb.addWidget(reset_btn)
         self.edit_bar.hide()
