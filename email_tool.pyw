@@ -15,7 +15,7 @@ from email.utils import formatdate, make_msgid
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QPoint, QRect, QSize, QThread, Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QGuiApplication, QIcon
+from PyQt6.QtGui import QFont, QGuiApplication, QIcon, QIntValidator
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -36,6 +36,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
+    QTabWidget,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -77,7 +78,138 @@ ZUSAETZE = [  # (Button, Text in der Mail) – erscheinen nach "Bauteile"
     ("Beist", "Beistellung"),
 ]
 
-TOGGLE_STYLE = "QPushButton:checked { background: #206ec8; color: white; font-weight: bold; }"
+ACCENT = "#2563eb"
+
+STYLESHEET = """
+* { font-family: "Segoe UI", "Segoe UI Variable", "Inter", sans-serif; font-size: 10pt; }
+QMainWindow, QDialog { background: #f3f5f9; }
+QWidget { color: #1f2937; }
+
+/* Karten */
+QGroupBox {
+    background: #ffffff;
+    border: 1px solid #e3e7ee;
+    border-radius: 12px;
+    margin-top: 22px;
+    padding: 8px 14px 8px 14px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 6px;
+    top: 2px;
+    padding: 0 4px;
+    color: #64748b;
+    font-size: 9pt;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+QLabel { background: transparent; }
+QLabel[role="section"] { color: #0f172a; font-weight: 600; }
+QLabel[role="field"] { color: #64748b; }
+
+/* Eingabefelder */
+QLineEdit, QPlainTextEdit, QSpinBox, QComboBox {
+    background: #f8fafc;
+    border: 1px solid #d7dde6;
+    border-radius: 8px;
+    padding: 5px 8px;
+    selection-background-color: #bfdbfe;
+    selection-color: #0f172a;
+}
+QLineEdit:hover, QPlainTextEdit:hover, QSpinBox:hover, QComboBox:hover { border-color: #b6c0ce; }
+QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus {
+    border: 1px solid ACCENT;
+    background: #ffffff;
+}
+QLineEdit[role="termin"] { color: #dc2626; font-weight: 700; }
+QTabWidget::pane { background: #ffffff; border: 1px solid #e3e7ee; border-radius: 12px; top: -1px; }
+QTabBar::tab {
+    background: transparent; color: #64748b; padding: 8px 16px; margin-right: 4px;
+    border: none; border-bottom: 2px solid transparent;
+}
+QTabBar::tab:selected { color: ACCENT; border-bottom: 2px solid ACCENT; font-weight: 600; }
+QTabBar::tab:hover { color: #1f2937; }
+
+/* Buttons */
+QPushButton {
+    background: #ffffff;
+    border: 1px solid #d7dde6;
+    border-radius: 8px;
+    padding: 6px 14px;
+    color: #1f2937;
+}
+QPushButton:hover { background: #f1f5f9; border-color: #b6c0ce; }
+QPushButton:pressed { background: #e2e8f0; }
+QPushButton:disabled { color: #94a3b8; background: #f1f5f9; }
+
+QPushButton[role="primary"] {
+    background: ACCENT; border: 1px solid ACCENT; color: #ffffff; font-weight: 600;
+    padding: 8px 26px;
+}
+QPushButton[role="primary"]:hover { background: #1d4ed8; }
+QPushButton[role="primary"]:pressed { background: #1e40af; }
+QPushButton[role="primary"]:disabled { background: #93c5fd; border-color: #93c5fd; }
+
+QPushButton[role="ghost"] { background: transparent; border: 1px solid transparent; color: #475569; }
+QPushButton[role="ghost"]:hover { background: #e8edf4; }
+
+/* Schalter (Pills) */
+QPushButton[role="toggle"] {
+    border-radius: 11px;
+    padding: 4px 16px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    color: #334155;
+}
+QPushButton[role="toggle"]:hover { background: #e2e8f0; }
+QPushButton[role="toggle"]:checked {
+    background: ACCENT; border-color: ACCENT; color: #ffffff; font-weight: 600;
+}
+
+/* Shortcut-Chips */
+QPushButton[role="chip"] {
+    border-radius: 10px;
+    padding: 3px 12px;
+    background: #eef2ff;
+    border: 1px solid #e0e7ff;
+    color: #3730a3;
+    font-size: 9pt;
+}
+QPushButton[role="chip"]:hover { background: #e0e7ff; }
+
+/* Vorschau */
+QTextBrowser#preview {
+    background: #ffffff;
+    border: none;
+    padding: 18px 20px;
+}
+
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+QScrollBar::handle:vertical { background: #cbd5e1; border-radius: 4px; min-height: 30px; }
+QScrollBar::handle:vertical:hover { background: #94a3b8; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+QToolTip { background: #0f172a; color: #ffffff; border: none; padding: 4px 8px; border-radius: 4px; }
+""".replace("ACCENT", ACCENT)
+
+
+LABEL_W = 92
+
+
+def fixed_label(text: str) -> QLabel:
+    lbl = field_label(text)
+    lbl.setFixedWidth(LABEL_W)
+    return lbl
+
+
+def set_role(widget, role: str):
+    widget.setProperty("role", role)
+    return widget
+
+
+def field_label(text: str) -> QLabel:
+    return set_role(QLabel(text), "field")
 
 DEFAULT_CONFIG = {
     "projekt_basis": r"M:\Projekte_ab_20000",
@@ -354,8 +486,7 @@ def append_inline(edit: QLineEdit, text: str):
 
 
 def bold_label(text: str) -> QLabel:
-    lbl = QLabel(f"<b>{text}</b>")
-    return lbl
+    return set_role(QLabel(text), "section")
 
 
 class SettingsDialog(QDialog):
@@ -363,13 +494,12 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Einstellungen")
         self.cfg = cfg
-        form = QFormLayout()
 
         self.basis = QLineEdit(cfg["projekt_basis"])
         self.server = QLineEdit(cfg["smtp_server"])
-        self.port = QSpinBox()
-        self.port.setRange(1, 65535)
-        self.port.setValue(int(cfg["smtp_port"]))
+        self.port = QLineEdit(str(cfg["smtp_port"]))
+        self.port.setValidator(QIntValidator(1, 65535, self))
+        self.port.setFixedWidth(90)
         self.security = QComboBox()
         self.security.addItems(["STARTTLS", "SSL/TLS", "Keine"])
         self.security.setCurrentText(cfg["smtp_security"])
@@ -387,56 +517,84 @@ class SettingsDialog(QDialog):
         self.gruss = QPlainTextEdit(cfg["gruss"])
         self.gruss.setFixedHeight(60)
 
-        form.addRow("Projekt-Basisordner:", self.basis)
-        form.addRow(QLabel("<b>Postausgangs-Server (SMTP)</b>"))
-        form.addRow("Server:", self.server)
-        form.addRow("Port:", self.port)
-        form.addRow("Verbindungssicherheit:", self.security)
-        form.addRow("Benutzername:", self.user)
-        form.addRow("Passwort:", self.password)
-        if keyring is None:
-            form.addRow("", QLabel("<i>'keyring' nicht installiert – Passwort wird nicht gespeichert.</i>"))
-        form.addRow(QLabel("<b>Email</b>"))
-        form.addRow("Absender:", self.absender)
-        form.addRow("Standard-Empfänger:", self.empfaenger)
-        form.addRow("Standard-CC:", self.cc)
-        form.addRow("Betreff:", self.betreff)
-        form.addRow("Anrede:", self.anrede)
-        form.addRow("Gruß:", self.gruss)
-        form.addRow(QLabel("<b>Textbausteine</b> (ein Baustein pro Zeile)"))
         self.bs_info = QPlainTextEdit("\n".join(cfg["bausteine_info"]))
-        self.bs_info.setFixedHeight(80)
         self.bs_achtung = QPlainTextEdit("\n".join(cfg["bausteine_achtung"]))
-        self.bs_achtung.setFixedHeight(80)
         self.sc_lieferant = QPlainTextEdit("\n".join(cfg["shortcuts_lieferant"]))
-        self.sc_lieferant.setFixedHeight(60)
         self.sc_sonst = QPlainTextEdit("\n".join(cfg["shortcuts_sonstiges"]))
-        self.sc_sonst.setFixedHeight(60)
-        form.addRow("Info (Modus Text):", self.bs_info)
-        form.addRow("LP → Lieferant:", self.sc_lieferant)
-        form.addRow("LP → Sonstiges:", self.sc_sonst)
-        form.addRow("Achtung → Freitext:", self.bs_achtung)
+        for w in (self.bs_info, self.bs_achtung, self.sc_lieferant, self.sc_sonst):
+            w.setFixedHeight(84)
+
+        def page(rows):
+            w = QWidget()
+            outer = QVBoxLayout(w)
+            outer.setContentsMargins(16, 16, 16, 16)
+            f = QFormLayout()
+            outer.addLayout(f)
+            outer.addStretch(1)
+            f.setHorizontalSpacing(14)
+            f.setVerticalSpacing(10)
+            for label, widget in rows:
+                if label is None:
+                    f.addRow(widget)
+                else:
+                    f.addRow(field_label(label), widget)
+            return w
 
         test_btn = QPushButton("Verbindung zum Server testen")
         test_btn.clicked.connect(self.test_connection)
-        form.addRow("", test_btn)
+        server_rows = [
+            ("Server", self.server),
+            ("Port", self.port),
+            ("Verbindungssicherheit", self.security),
+            ("Benutzername", self.user),
+            ("Passwort", self.password),
+        ]
+        if keyring is None:
+            server_rows.append(("", QLabel("<i>'keyring' nicht installiert – Passwort wird nicht gespeichert.</i>")))
+        server_rows.append(("", test_btn))
+
+        tabs = QTabWidget()
+        tabs.addTab(page([
+            ("Absender", self.absender),
+            ("Standard-Empfänger", self.empfaenger),
+            ("Standard-CC", self.cc),
+            ("Betreff", self.betreff),
+            ("", set_role(QLabel("Platzhalter: {nr}  {firma}  {board}"), "field")),
+            ("Anrede", self.anrede),
+            ("Gruß", self.gruss),
+            ("Projekt-Basisordner", self.basis),
+        ]), "Email")
+        tabs.addTab(page(server_rows), "Server (SMTP)")
+        tabs.addTab(page([
+            (None, set_role(QLabel("Ein Eintrag pro Zeile – jeder wird ein Button."), "field")),
+            ("LP → Lieferant", self.sc_lieferant),
+            ("LP → Sonstiges", self.sc_sonst),
+            ("Achtung → Freitext", self.bs_achtung),
+            ("Info (Modus Text)", self.bs_info),
+        ]), "Textbausteine")
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Speichern")
+        set_role(buttons.button(QDialogButtonBox.StandardButton.Save), "primary")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Abbrechen")
+        set_role(buttons.button(QDialogButtonBox.StandardButton.Cancel), "ghost")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(14)
+        layout.addWidget(tabs)
         layout.addWidget(buttons)
-        self.resize(520, self.sizeHint().height())
+        self.resize(620, self.sizeHint().height())
 
     def values(self) -> dict:
         return {
             "projekt_basis": self.basis.text().strip(),
             "smtp_server": self.server.text().strip(),
-            "smtp_port": self.port.value(),
+            "smtp_port": int(self.port.text() or 587),
             "smtp_security": self.security.currentText(),
             "smtp_user": self.user.text().strip(),
             "absender": self.absender.text().strip(),
@@ -493,13 +651,14 @@ class ToggleRow(QWidget):
         super().__init__(parent)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
         self.allow_none = allow_none
         self.buttons: list[QPushButton] = []
         for text in labels:
             btn = QPushButton(text)
             btn.setCheckable(True)
             btn.setMinimumWidth(70)
-            btn.setStyleSheet(TOGGLE_STYLE)
+            set_role(btn, "toggle")
             btn.clicked.connect(lambda checked, b=btn: self._clicked(b, checked))
             lay.addWidget(btn)
             self.buttons.append(btn)
@@ -529,7 +688,7 @@ class ToggleRow(QWidget):
 def shortcut_button(text: str, slot) -> QPushButton:
     btn = QPushButton(text)
     btn.setToolTip(f"„{text}“ einfügen")
-    btn.setStyleSheet("padding: 2px 8px;")
+    set_role(btn, "chip")
     btn.clicked.connect(lambda: slot(text))
     return btn
 
@@ -548,22 +707,29 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         outer = QVBoxLayout(central)
+        outer.setContentsMargins(18, 8, 18, 16)
+        outer.setSpacing(12)
         columns = QHBoxLayout()
+        columns.setSpacing(16)
         outer.addLayout(columns, 1)
         left_w = QWidget()
         root = QVBoxLayout(left_w)
         root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(4)
         columns.addWidget(left_w, 5)
 
         # --- Projekt ---
-        proj_box = QGroupBox("Projekt")
+        proj_box = QGroupBox("PROJEKT")
         pl = QGridLayout(proj_box)
+        pl.setColumnMinimumWidth(0, LABEL_W)
+        pl.setHorizontalSpacing(12)
+        pl.setVerticalSpacing(6)
         self.nr_edit = QLineEdit()
         self.nr_edit.setMaxLength(10)
         self.nr_edit.returnPressed.connect(self.search)
         self.search_btn = QPushButton("Suchen")
         self.search_btn.clicked.connect(self.search)
-        pl.addWidget(QLabel("Projektnummer:"), 0, 0)
+        pl.addWidget(field_label("Projektnummer"), 0, 0)
         pl.addWidget(self.nr_edit, 0, 1)
         pl.addWidget(self.search_btn, 0, 2)
 
@@ -573,36 +739,41 @@ class MainWindow(QMainWindow):
         self.path_edit.textChanged.connect(self.update_subject)
         copy_btn = QPushButton("Kopieren")
         copy_btn.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.path_edit.text()))
-        pl.addWidget(QLabel("Pfad:"), 1, 0)
+        pl.addWidget(field_label("Pfad"), 1, 0)
         pl.addWidget(self.path_edit, 1, 1)
         pl.addWidget(copy_btn, 1, 2)
 
         self.dev_edit = QLineEdit()
         self.dev_edit.setPlaceholderText("optional – erscheint im Betreff in Klammern hinter der Firma")
         self.dev_edit.textChanged.connect(self.update_subject)
-        pl.addWidget(QLabel("Entwickler:"), 2, 0)
+        pl.addWidget(field_label("Entwickler"), 2, 0)
         pl.addWidget(self.dev_edit, 2, 1, 1, 2)
         self.status_lbl = QLabel("")
         pl.addWidget(self.status_lbl, 3, 0, 1, 3)
         root.addWidget(proj_box)
 
         # --- Empfänger ---
-        mail_box = QGroupBox("Email")
+        mail_box = QGroupBox("EMAIL")
         ml = QFormLayout(mail_box)
+        ml.setHorizontalSpacing(12)
+        ml.setVerticalSpacing(6)
         self.to_edit = QLineEdit(self.cfg["empfaenger"])
         self.cc_edit = QLineEdit(self.cfg["cc"])
         self.subject_edit = QLineEdit()
-        ml.addRow("An:", self.to_edit)
-        ml.addRow("CC:", self.cc_edit)
-        ml.addRow("Betreff:", self.subject_edit)
+        ml.addRow(fixed_label("An"), self.to_edit)
+        ml.addRow(fixed_label("CC"), self.cc_edit)
+        ml.addRow(fixed_label("Betreff"), self.subject_edit)
         root.addWidget(mail_box)
 
         # --- Info ---
-        info_box = QGroupBox("Info")
+        info_box = QGroupBox("INFO")
         ig = QGridLayout(info_box)
+        ig.setColumnMinimumWidth(0, LABEL_W)
+        ig.setHorizontalSpacing(12)
+        ig.setVerticalSpacing(6)
         self.info_mode = ToggleRow(["PO", "Ang", "Text"], allow_none=False)
         self.info_mode.changed.connect(self.info_mode_changed)
-        ig.addWidget(QLabel("Bestellung:"), 0, 0)
+        ig.addWidget(field_label("Bestellung"), 0, 0)
         ig.addWidget(self.info_mode, 0, 1)
 
         self.info_panel = QWidget()
@@ -617,15 +788,18 @@ class MainWindow(QMainWindow):
         ig.addWidget(self.info_panel, 1, 1)
 
         self.termin_edit = QLineEdit()
-        self.termin_edit.setStyleSheet("color: #c00000; font-weight: bold;")
+        set_role(self.termin_edit, "termin")
         self.termin_edit.textChanged.connect(self.update_preview)
-        ig.addWidget(QLabel("Liefertermin:"), 2, 0)
+        ig.addWidget(field_label("Liefertermin"), 2, 0)
         ig.addWidget(self.termin_edit, 2, 1)
         root.addWidget(info_box)
 
         # --- Achtung ---
-        warn_box = QGroupBox("Achtung")
+        warn_box = QGroupBox("ACHTUNG")
         ag = QGridLayout(warn_box)
+        ag.setColumnMinimumWidth(0, LABEL_W)
+        ag.setHorizontalSpacing(12)
+        ag.setVerticalSpacing(6)
         ag.setColumnStretch(1, 1)
         r = 0
 
@@ -633,11 +807,12 @@ class MainWindow(QMainWindow):
         ag.addWidget(bold_label("LP"), r, 0, 1, 2)
         r += 1
         lp_row = QHBoxLayout()
+        lp_row.setSpacing(8)
         self.lp_typ = ToggleRow(["Einzel-LP", "Nutzen"])
         self.lp_typ.changed.connect(self.update_preview)
         lp_row.addWidget(self.lp_typ)
         lp_row.addSpacing(12)
-        lp_row.addWidget(QLabel("Anzahl:"))
+        lp_row.addWidget(field_label("Anzahl"))
         self.lp_anzahl = QLineEdit()
         self.lp_anzahl.setFixedWidth(60)
         self.lp_anzahl.textChanged.connect(self.update_preview)
@@ -647,23 +822,25 @@ class MainWindow(QMainWindow):
         self.lp_anzahl2.textChanged.connect(self.update_preview)
         lp_row.addWidget(self.lp_anzahl2)
         lp_row.addStretch(1)
-        ag.addWidget(QLabel("Art:"), r, 0)
+        ag.addWidget(field_label("Art"), r, 0)
         ag.addLayout(lp_row, r, 1)
         r += 1
 
         self.lieferant_edit = QLineEdit()
         self.lieferant_edit.textChanged.connect(self.update_preview)
         self.lieferant_row = QHBoxLayout()
+        self.lieferant_row.setSpacing(8)
         self.lieferant_row.addWidget(self.lieferant_edit, 1)
-        ag.addWidget(QLabel("Lieferant:"), r, 0)
+        ag.addWidget(field_label("Lieferant"), r, 0)
         ag.addLayout(self.lieferant_row, r, 1)
         r += 1
 
         self.sonst_edit = QLineEdit()
         self.sonst_edit.textChanged.connect(self.update_preview)
         self.sonst_row = QHBoxLayout()
+        self.sonst_row.setSpacing(8)
         self.sonst_row.addWidget(self.sonst_edit, 1)
-        ag.addWidget(QLabel("Sonstiges:"), r, 0)
+        ag.addWidget(field_label("Sonstiges"), r, 0)
         ag.addLayout(self.sonst_row, r, 1)
         r += 1
 
@@ -683,13 +860,14 @@ class MainWindow(QMainWindow):
 
         # Zusätze – jeder aktive wird ein eigener Aufzählungspunkt
         zusatz_row = QHBoxLayout()
+        zusatz_row.setSpacing(8)
         self.zusatz_buttons: list[tuple[QPushButton, str]] = []
         for label, ausgabe in ZUSAETZE:
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setMinimumWidth(70)
             btn.setToolTip(ausgabe)
-            btn.setStyleSheet(TOGGLE_STYLE)
+            set_role(btn, "toggle")
             btn.toggled.connect(self.update_preview)
             zusatz_row.addWidget(btn)
             self.zusatz_buttons.append((btn, ausgabe))
@@ -720,25 +898,26 @@ class MainWindow(QMainWindow):
         self.build_baustein_buttons()
 
         # --- Vorschau (rechts) ---
-        prev_box = QGroupBox("Vorschau")
+        prev_box = QGroupBox("VORSCHAU")
         prl = QVBoxLayout(prev_box)
+        prl.setContentsMargins(4, 4, 4, 4)
         self.preview = QTextBrowser()
+        self.preview.setObjectName("preview")
         self.preview.setOpenLinks(False)
         prl.addWidget(self.preview)
         columns.addWidget(prev_box, 4)
 
         # --- Buttons ---
         btn_row = QHBoxLayout()
-        settings_btn = QPushButton("Einstellungen…")
+        settings_btn = set_role(QPushButton("⚙  Einstellungen"), "ghost")
         settings_btn.clicked.connect(self.open_settings)
         btn_row.addWidget(settings_btn)
         btn_row.addStretch(1)
-        clear_btn = QPushButton("Leeren")
+        clear_btn = set_role(QPushButton("Leeren"), "ghost")
         clear_btn.clicked.connect(self.clear)
         btn_row.addWidget(clear_btn)
-        self.send_btn = QPushButton("Senden")
-        self.send_btn.setMinimumWidth(120)
-        self.send_btn.setStyleSheet("font-weight: bold;")
+        self.send_btn = set_role(QPushButton("Senden  ➤"), "primary")
+        self.send_btn.setMinimumWidth(140)
         self.send_btn.clicked.connect(self.send)
         btn_row.addWidget(self.send_btn)
         outer.addLayout(btn_row)
@@ -855,7 +1034,7 @@ class MainWindow(QMainWindow):
             self.preview.setHtml(self.build_mail()[1])
 
     def set_status(self, text: str, ok: bool | None = None):
-        color = {True: "green", False: "#c00000", None: "gray"}[ok]
+        color = {True: "#16a34a", False: "#dc2626", None: "#64748b"}[ok]
         self.status_lbl.setStyleSheet(f"color: {color};")
         self.status_lbl.setText(text)
 
@@ -995,6 +1174,7 @@ class MainWindow(QMainWindow):
             container = QWidget()
             hl = QHBoxLayout(container)
             hl.setContentsMargins(0, 0, 0, 0)
+            hl.setSpacing(6)
             for text in self.cfg.get(key, []):
                 hl.addWidget(shortcut_button(text, slot))
             self._replace_container(attr, row, container)
@@ -1039,6 +1219,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")
+    app.setStyleSheet(STYLESHEET)
     icon_file = resource_path("icon.ico")
     if icon_file.exists():
         app.setWindowIcon(QIcon(str(icon_file)))
