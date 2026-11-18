@@ -68,9 +68,10 @@ DEFAULT_CONFIG = {
     "smtp_user": "nimeier",
     "smtp_security": "STARTTLS",  # STARTTLS | SSL/TLS | Keine
     "absender": "",  # z.B. vorname.nachname@gcd.de
-    "empfaenger": "",  # Vertrieb, mehrere mit ; trennen
+    "empfaenger": "vertrieb@gcd.de",  # mehrere mit ; trennen
     "cc": "",
-    "betreff": "Baugruppendaten Projekt {nr}",
+    # Platzhalter: {nr} Projektnummer, {firma} Kundenordner, {board} Teil nach ___
+    "betreff": "PN{nr} / Baugruppendaten {firma} {board} / {nr} sind auf M",
     "anrede": "Hallo Vertrieb,",
     "gruss": "VG\nUli",
 }
@@ -83,6 +84,11 @@ def load_config() -> dict:
             cfg.update(json.loads(CONFIG_FILE.read_text(encoding="utf-8")))
         except (OSError, json.JSONDecodeError):
             pass
+    # alte / leere Werte auf neue Standards heben
+    if not cfg.get("empfaenger"):
+        cfg["empfaenger"] = DEFAULT_CONFIG["empfaenger"]
+    if cfg.get("betreff") in ("", "Baugruppendaten Projekt {nr}"):
+        cfg["betreff"] = DEFAULT_CONFIG["betreff"]
     return cfg
 
 
@@ -128,6 +134,21 @@ def find_project_dirs(base: Path, nr: str) -> list[Path]:
         except (PermissionError, OSError):
             continue
     return sorted(treffer)
+
+
+def parse_project_path(pfad: str, nr: str) -> tuple[str, str]:
+    r"""Liefert (Firma, Boardname) aus dem Pfad.
+
+    ...\FEINMETALL\21156___G0056D-V01-J7-00126-PV_1191274\...
+      -> ("FEINMETALL", "G0056D-V01-J7-00126-PV_1191274")
+    """
+    teile = [t for t in pfad.replace("/", "\\").split("\\") if t]
+    for i, teil in enumerate(teile):
+        if nr and (teil == nr or teil.startswith(nr + "_")):
+            firma = teile[i - 1] if i > 0 else ""
+            board = teil.split("___", 1)[1] if "___" in teil else teil[len(nr):].lstrip("_")
+            return firma, board
+    return "", ""
 
 
 def aktuell_path(projekt_dir: Path, nr: str) -> Path:
@@ -231,7 +252,7 @@ class SettingsDialog(QDialog):
         self.empfaenger.setPlaceholderText("vertrieb@firma.de; ...")
         self.cc = QLineEdit(cfg["cc"])
         self.betreff = QLineEdit(cfg["betreff"])
-        self.betreff.setToolTip("{nr} wird durch die Projektnummer ersetzt")
+        self.betreff.setToolTip("Platzhalter: {nr} Projektnummer, {firma} Firma, {board} Boardname")
         self.anrede = QLineEdit(cfg["anrede"])
         self.gruss = QPlainTextEdit(cfg["gruss"])
         self.gruss.setFixedHeight(60)
@@ -348,6 +369,7 @@ class MainWindow(QMainWindow):
         self.path_edit = QLineEdit()
         self.path_edit.setPlaceholderText("wird nach der Suche gefüllt (kann auch angepasst werden)")
         self.path_edit.textChanged.connect(self.update_preview)
+        self.path_edit.textChanged.connect(self.update_subject)
         row2.addWidget(self.path_edit, 1)
         copy_btn = QPushButton("Kopieren")
         copy_btn.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.path_edit.text()))
@@ -421,7 +443,14 @@ class MainWindow(QMainWindow):
         return self.nr_edit.text().strip()
 
     def update_subject(self):
-        self.subject_edit.setText(self.cfg["betreff"].replace("{nr}", self.nr()))
+        firma, board = parse_project_path(self.path_edit.text(), self.nr())
+        betreff = (
+            self.cfg["betreff"]
+            .replace("{nr}", self.nr())
+            .replace("{firma}", firma)
+            .replace("{board}", board)
+        )
+        self.subject_edit.setText(" ".join(betreff.split()))
 
     def build_body(self) -> str:
         teile = [

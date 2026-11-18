@@ -21,9 +21,9 @@ Als eigenständige `.exe` (kein Python auf dem Zielrechner nötig): `build_exe.b
 
 ## Einstellungen
 Beim ersten Mal unter **Einstellungen…** eintragen:
-- **Absender-Adresse** und **Standard-Empfänger** (Vertrieb), mehrere mit `;` trennen
+- **Absender-Adresse** (Empfänger ist `vertrieb@gcd.de` vorbelegt, mehrere mit `;` trennen)
 - SMTP ist vorbelegt: `mail.gcd.de`, Port `587`, STARTTLS, Benutzer `nimeier`
 - Passwort wird über `keyring` im Windows-Anmeldeinformationsspeicher abgelegt – nicht im Klartext
 
 Die Einstellungen landen in `config.json` neben dem Programm (nicht im Git).
-Betreff (`{nr}` = Projektnummer), Anrede und Gruß sind dort ebenfalls änderbar.
+Betreff (Platzhalter `{nr}`, `{firma}`, `{board}`; Standard: `PN{nr} / Baugruppendaten {firma} {board} / {nr} sind auf M`), Anrede und Gruß sind dort ebenfalls änderbar.
