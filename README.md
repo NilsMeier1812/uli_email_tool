@@ -8,9 +8,11 @@ Kleines PyQt6-Tool, um die immer gleiche Email „Baugruppendaten liegen auf …
    und hängt `\21156.01\Aktuell` an, z.B.
    `M:\Projekte_ab_20000\FEINMETALL\21156___G0056D-V01-J7-00126-PV_1191274\21156.01\Aktuell`
    (bei mehreren Treffern erscheint eine Auswahl, der Pfad kann auch von Hand angepasst werden)
-3. Texte in **Info** und **Achtung** eintragen – oder per Klick auf einen **Textbaustein-Button** einfügen.
+3. Optional **Entwickler** eintragen → steht im Betreff in Klammern hinter der Firma, z.B. `FEINMETALL (Müller)`
+4. **Info** wählen: `PO` (Bestellung gemäß PO), `Ang` (Bestellung gemäß Angebot) oder `Text` (eigenes Textfeld)
+5. **Achtung** ausfüllen – oder per Klick auf einen **Textbaustein-Button** einfügen.
    Jede Zeile bei Achtung wird in der Mail automatisch ein Aufzählungspunkt (`- `). Leeres Achtung-Feld → Abschnitt entfällt.
-4. **Senden** – die Mail geht direkt über SMTP raus
+6. **Senden** – die Mail geht direkt über SMTP raus
 
 ## Installation (Windows)
 ```bat

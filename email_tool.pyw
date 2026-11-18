@@ -17,6 +17,7 @@ from PyQt6.QtCore import QObject, QPoint, QRect, QSize, QThread, Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QGuiApplication, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -62,6 +63,11 @@ def resource_path(name: str) -> Path:
 
 CONFIG_FILE = app_dir() / "config.json"
 
+INFO_TEXTE = {
+    "PO": "Bestellung gemäß PO",
+    "Ang": "Bestellung gemäß Angebot",
+}
+
 DEFAULT_CONFIG = {
     "projekt_basis": r"M:\Projekte_ab_20000",
     "smtp_server": "mail.gcd.de",
@@ -76,7 +82,7 @@ DEFAULT_CONFIG = {
     "anrede": "Hallo Vertrieb,",
     "gruss": "VG\nUli",
     # Textbausteine (Buttons unter den Textfeldern)
-    "bausteine_info": ["Bestellung gemäß PO"],
+    "bausteine_info": [],
     "bausteine_achtung": ["PASTE -> aktuell (TOP/BOTTOM)"],
 }
 
@@ -91,6 +97,8 @@ def load_config() -> dict:
     # alte / leere Werte auf neue Standards heben
     if not cfg.get("empfaenger"):
         cfg["empfaenger"] = DEFAULT_CONFIG["empfaenger"]
+    # "Bestellung gemäß PO" ist jetzt ein eigener Schalter
+    cfg["bausteine_info"] = [b for b in cfg.get("bausteine_info", []) if b != "Bestellung gemäß PO"]
     if cfg.get("betreff") in ("", "Baugruppendaten Projekt {nr}"):
         cfg["betreff"] = DEFAULT_CONFIG["betreff"]
     return cfg
@@ -365,7 +373,7 @@ class SettingsDialog(QDialog):
         self.bs_info.setFixedHeight(80)
         self.bs_achtung = QPlainTextEdit("\n".join(cfg["bausteine_achtung"]))
         self.bs_achtung.setFixedHeight(80)
-        form.addRow("Info:", self.bs_info)
+        form.addRow("Info (Modus Text):", self.bs_info)
         form.addRow("Achtung:", self.bs_achtung)
 
         test_btn = QPushButton("Verbindung zum Server testen")
@@ -471,9 +479,20 @@ class MainWindow(QMainWindow):
         copy_btn.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.path_edit.text()))
         row2.addWidget(copy_btn)
         pl.addLayout(row2)
+
+        row3 = QHBoxLayout()
+        row3.addWidget(QLabel("Entwickler:"))
+        self.dev_edit = QLineEdit()
+        self.dev_edit.setPlaceholderText("optional – erscheint im Betreff in Klammern hinter der Firma")
+        self.dev_edit.textChanged.connect(self.update_subject)
+        row3.addWidget(self.dev_edit, 1)
+        pl.addLayout(row3)
         self.status_lbl = QLabel("")
         pl.addWidget(self.status_lbl)
         root.addWidget(proj_box)
+
+        for lay in (row, row2, row3):
+            lay.itemAt(0).widget().setMinimumWidth(95)
 
         # --- Empfänger ---
         mail_box = QGroupBox("Email")
@@ -489,13 +508,44 @@ class MainWindow(QMainWindow):
         # --- Texte ---
         txt_row = QHBoxLayout()
         info_box = QGroupBox("Info")
-        il = QVBoxLayout(info_box)
+        ib = QVBoxLayout(info_box)
+        mode_row = QHBoxLayout()
+        self.info_mode = QButtonGroup(self)
+        self.info_mode.setExclusive(True)
+        for text, tip in (
+            ("PO", INFO_TEXTE["PO"]),
+            ("Ang", INFO_TEXTE["Ang"]),
+            ("Text", "Eigenen Text schreiben"),
+        ):
+            btn = QPushButton(text)
+            btn.setCheckable(True)
+            btn.setToolTip(tip)
+            btn.setMinimumWidth(60)
+            btn.setStyleSheet(
+                "QPushButton:checked { background: #206ec8; color: white; font-weight: bold; }"
+            )
+            self.info_mode.addButton(btn)
+            mode_row.addWidget(btn)
+        mode_row.addStretch(1)
+        ib.addLayout(mode_row)
+        self.info_mode_label = QLabel()
+        self.info_mode_label.setStyleSheet("color: gray;")
+        ib.addWidget(self.info_mode_label)
+
+        # Textfeld nur im Modus "Text"
+        self.info_panel = QWidget()
+        il = QVBoxLayout(self.info_panel)
+        il.setContentsMargins(0, 0, 0, 0)
         self.info_edit = QPlainTextEdit()
+        self.info_edit.setFixedHeight(4 * self.info_edit.fontMetrics().lineSpacing() + 14)
         self.info_edit.textChanged.connect(self.update_preview)
-        il.addWidget(self.info_edit, 1)
+        il.addWidget(self.info_edit)
         self.info_layout = il
         self.info_buttons: QWidget | None = None
-        txt_row.addWidget(info_box)
+        ib.addWidget(self.info_panel)
+        ib.addStretch(1)
+        txt_row.addWidget(info_box, 2)
+        self.info_mode.buttonToggled.connect(self.info_mode_changed)
 
         warn_box = QGroupBox("Achtung (jede Zeile wird ein Aufzählungspunkt)")
         wl = QVBoxLayout(warn_box)
@@ -504,7 +554,7 @@ class MainWindow(QMainWindow):
         wl.addWidget(self.warn_edit, 1)
         self.warn_layout = wl
         self.warn_buttons: QWidget | None = None
-        txt_row.addWidget(warn_box)
+        txt_row.addWidget(warn_box, 3)
         root.addLayout(txt_row, 2)
         self.build_baustein_buttons()
 
@@ -540,7 +590,7 @@ class MainWindow(QMainWindow):
         self.nr_edit.textChanged.connect(self.update_subject)
         self.update_subject()
         self.update_preview()
-        self.info_edit.setMinimumHeight(70)
+        self.info_mode.buttons()[0].setChecked(True)  # Standard: PO
         self.warn_edit.setMinimumHeight(70)
         screen = QGuiApplication.primaryScreen().availableGeometry()
         self.resize(min(960, screen.width() - 40), min(1000, screen.height() - 60))
@@ -551,6 +601,9 @@ class MainWindow(QMainWindow):
 
     def update_subject(self):
         firma, board = parse_project_path(self.path_edit.text(), self.nr())
+        entwickler = self.dev_edit.text().strip()
+        if entwickler:
+            firma = f"{firma} ({entwickler})" if firma else f"({entwickler})"
         betreff = (
             self.cfg["betreff"]
             .replace("{nr}", self.nr())
@@ -559,13 +612,32 @@ class MainWindow(QMainWindow):
         )
         self.subject_edit.setText(" ".join(betreff.split()))
 
+    def info_mode_name(self) -> str:
+        btn = self.info_mode.checkedButton()
+        return btn.text() if btn else "PO"
+
+    def info_mode_changed(self, *_):
+        modus = self.info_mode_name()
+        self.info_panel.setVisible(modus == "Text")
+        self.info_mode_label.setVisible(modus != "Text")
+        self.info_mode_label.setText(INFO_TEXTE.get(modus, ""))
+        if modus == "Text":
+            self.info_edit.setFocus()
+        self.update_preview()
+
+    def info_text(self) -> str:
+        modus = self.info_mode_name()
+        if modus == "Text":
+            return self.info_edit.toPlainText().strip()
+        return INFO_TEXTE[modus]
+
     def build_body(self) -> str:
         teile = [
             self.cfg["anrede"],
             "",
             f"Die Baugruppendaten für das Board sind auf {self.path_edit.text().strip()}",
         ]
-        info = self.info_edit.toPlainText().strip()
+        info = self.info_text()
         if info:
             teile += ["", info]
         achtung = as_bullets(self.warn_edit.toPlainText())
@@ -721,7 +793,9 @@ class MainWindow(QMainWindow):
     def clear(self):
         self.nr_edit.clear()
         self.path_edit.clear()
+        self.dev_edit.clear()
         self.info_edit.clear()
+        self.info_mode.buttons()[0].setChecked(True)
         self.warn_edit.clear()
         self.set_status("")
         self.nr_edit.setFocus()
