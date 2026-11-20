@@ -29,15 +29,25 @@ Kleines PyQt6-Tool, um die immer gleiche Email „Baugruppendaten liegen auf …
 6. Bei Bedarf direkt in der **Vorschau** nachbessern (dann werden Feldänderungen nicht mehr übernommen, „Neu aus Feldern“ setzt zurück)
 7. **Senden** – die Mail geht direkt über SMTP raus
 
-## Installation (Windows)
-Einmal **`Verknuepfung_erstellen.bat`** doppelklicken. Das installiert die Pakete und legt
-eine Verknüpfung **„Uli Email Tool“** mit eigenem Icon auf den Desktop und ins Startmenü.
-Danach startet das Tool per Doppelklick – ohne Konsolenfenster. Die Verknüpfung kann man
-auch an die Taskleiste anheften.
+## Installation (Windows) – neue PCs
+**`setup.bat`** herunterladen und doppelklicken (Admin-Rechte werden abgefragt). Mehr braucht es nicht –
+die .bat holt sich den Rest selbst von GitHub. Das Setup:
 
-Updates: `git pull` – die Verknüpfung bleibt gültig.
+1. installiert bei Bedarf **Python** und **Git** (per winget, sonst Direkt-Download)
+2. holt das Tool nach **`C:\uli_email_tool`**
+3. gibt normalen Benutzern Schreibrechte dort (für Einstellungen und Updates)
+4. installiert die Pakete (PyQt6, keyring)
+5. legt **„Uli Email Tool“** mit Icon auf den Desktop und ins Startmenü – für alle Benutzer des PCs
+6. startet das Tool einmal
 
-Alternativ als eigenständige `.exe` (nur nötig auf Rechnern ohne Python): `build_exe.bat` → `dist\UliEmailTool.exe`.
+Danach im Tool unter **Einstellungen** Absender-Adresse, Benutzername und Passwort eintragen.
+
+Erneut ausführen ist unbedenklich: es aktualisiert die vorhandene Installation, `config.json` bleibt erhalten.
+
+**Updates:** `update.bat` in `C:\uli_email_tool` doppelklicken (keine Admin-Rechte nötig).
+
+Nur für den eigenen Rechner ohne Setup: `Verknuepfung_erstellen.bat` legt eine Verknüpfung für den aktuellen Benutzer an.
+Als eigenständige `.exe` (Rechner ohne Python): `build_exe.bat` → `dist\UliEmailTool.exe`.
 
 ## Einstellungen
 Beim ersten Mal unter **Einstellungen…** eintragen:
