@@ -30,7 +30,7 @@ Kleines PyQt6-Tool, um die immer gleiche Email „Baugruppendaten liegen auf …
 7. **Senden** – die Mail geht direkt über SMTP raus
 
 ## Installation (Windows) – neue PCs
-**`setup.bat`** herunterladen und doppelklicken (Admin-Rechte werden abgefragt). Mehr braucht es nicht –
+**`Email_tool_setup.bat`** herunterladen und doppelklicken (Admin-Rechte werden abgefragt). Mehr braucht es nicht –
 die .bat holt sich den Rest selbst von GitHub. Das Setup:
 
 1. installiert bei Bedarf **Python** und **Git** (per winget, sonst Direkt-Download)

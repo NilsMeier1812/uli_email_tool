@@ -712,11 +712,11 @@ def update_possible() -> str:
     if getattr(sys, "frozen", False):
         return "Die .exe-Version kann sich nicht selbst aktualisieren."
     if not (app_dir() / ".git").exists():
-        return "Kein Git-Ordner – bitte setup.bat erneut ausführen, um zu aktualisieren."
+        return "Kein Git-Ordner – bitte Email_tool_setup.bat erneut ausführen, um zu aktualisieren."
     try:
         run_git("--version", timeout=10)
     except Exception:
-        return "Git ist nicht installiert – bitte setup.bat erneut ausführen."
+        return "Git ist nicht installiert – bitte Email_tool_setup.bat erneut ausführen."
     return ""
 
 
@@ -1113,7 +1113,7 @@ class SettingsDialog(QDialog):
         self.sc_btn.setText("  Verknüpfung reparieren")
         if ergebnis == "alle-unveraendert":
             self._sc_set("Es gibt bereits eine Verknüpfung für alle Benutzer. Zum Ändern sind "
-                         "Admin-Rechte nötig – dafür setup.bat erneut ausführen.", "#64748b")
+                         "Admin-Rechte nötig – dafür Email_tool_setup.bat erneut ausführen.", "#64748b")
         else:
             self._sc_set("Verknüpfung „" + APP_NAME + "“ auf dem Desktop und im Startmenü angelegt.", "#16a34a")
 

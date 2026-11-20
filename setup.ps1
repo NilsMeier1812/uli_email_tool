@@ -18,7 +18,7 @@
    - Absender-Adresse und SMTP-Passwort (Benutzername ggf. anpassen)
 
  Aufruf:
-   - Bequem: setup.bat doppelklicken (holt Admin-Rechte + dieses Skript).
+   - Bequem: Email_tool_setup.bat doppelklicken (holt Admin-Rechte + dieses Skript).
    - Direkt: Rechtsklick auf setup.ps1 -> "Mit PowerShell ausfuehren".
    Das Skript fordert bei Bedarf selbst Administrator-Rechte an.
 
@@ -74,7 +74,7 @@ if (-not $isAdmin) {
         exit
     } else {
         Warn "Ohne Administrator-Rechte gestartet. Bitte PowerShell 'als Administrator'"
-        Warn "oeffnen und das Skript erneut ausfuehren (oder setup.bat doppelklicken)."
+        Warn "oeffnen und das Skript erneut ausfuehren (oder Email_tool_setup.bat doppelklicken)."
         Read-Host "Zum Beenden Enter druecken"
         exit 1
     }
@@ -252,7 +252,7 @@ function Ensure-Repo {
         Ok "Repo geklont."
     } else {
         Get-RepoViaZip
-        Ok "Repo per ZIP abgelegt (ohne Git - Updates dann erneut per setup.bat)."
+        Ok "Repo per ZIP abgelegt (ohne Git - Updates dann erneut per Email_tool_setup.bat)."
     }
 
     if ($savedConfig) {

@@ -8,7 +8,7 @@ REM
 REM  Liegt setup.ps1 neben dieser Datei (z.B. im geklonten Repo),
 REM  wird sie direkt genutzt. Sonst wird sie einmalig von GitHub
 REM  geladen - so reicht fuer einen neuen Rechner ALLEIN diese
-REM  setup.bat als Download.
+REM  Email_tool_setup.bat als Download.
 REM ============================================================
 
 setlocal
