@@ -1,4 +1,4 @@
-# Uli Email Tool
+# Vertrieb Email Tool
 
 Kleines PyQt6-Tool, um die immer gleiche Email „Baugruppendaten liegen auf …“ an den Vertrieb zu verschicken.
 
@@ -34,20 +34,20 @@ Kleines PyQt6-Tool, um die immer gleiche Email „Baugruppendaten liegen auf …
 die .bat holt sich den Rest selbst von GitHub. Das Setup:
 
 1. installiert bei Bedarf **Python** und **Git** (per winget, sonst Direkt-Download)
-2. holt das Tool nach **`C:\uli_email_tool`**
+2. holt das Tool nach **`C:\vertrieb_email_tool`**
 3. gibt normalen Benutzern Schreibrechte dort (für Einstellungen und Updates)
 4. installiert die Pakete (PyQt6, keyring)
-5. legt **„Uli Email Tool“** mit Icon auf den Desktop und ins Startmenü – für alle Benutzer des PCs
+5. legt **„Vertrieb Email Tool“** mit Icon auf den Desktop und ins Startmenü – für alle Benutzer des PCs
 6. startet das Tool einmal
 
 Danach im Tool unter **Einstellungen** Absender-Adresse, Benutzername und Passwort eintragen.
 
 Erneut ausführen ist unbedenklich: es aktualisiert die vorhandene Installation, `config.json` bleibt erhalten.
 
-**Updates:** `update.bat` in `C:\uli_email_tool` doppelklicken (keine Admin-Rechte nötig).
+**Updates:** `update.bat` in `C:\vertrieb_email_tool` doppelklicken (keine Admin-Rechte nötig).
 
 Nur für den eigenen Rechner ohne Setup: `Verknuepfung_erstellen.bat` legt eine Verknüpfung für den aktuellen Benutzer an.
-Als eigenständige `.exe` (Rechner ohne Python): `build_exe.bat` → `dist\UliEmailTool.exe`.
+Als eigenständige `.exe` (Rechner ohne Python): `build_exe.bat` → `dist\VertriebEmailTool.exe`.
 
 ## Einstellungen
 Beim **ersten Start** (bzw. solange etwas fehlt) öffnet sich ein kurzes **Willkommen-Fenster**: Name (für den Gruß), Email-Adresse, Benutzername und Passwort – mit Verbindungstest. Es ist keine Person voreingestellt.

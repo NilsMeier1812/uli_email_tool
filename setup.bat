@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  Uli Email Tool - Ein-Klick-Einrichtung (Starter)
+REM  Vertrieb Email Tool - Ein-Klick-Einrichtung (Starter)
 REM
 REM  Doppelklick genuegt. Diese .bat besorgt sich Administrator-
 REM  Rechte und startet setup.ps1 (die eigentliche Einrichtung).
@@ -14,7 +14,7 @@ REM ============================================================
 setlocal
 set "PS1_LOCAL=%~dp0setup.ps1"
 set "PS1_RAW=https://raw.githubusercontent.com/NilsMeier1812/uli_email_tool/main/setup.ps1"
-set "PS1_TMP=%TEMP%\uli-email-tool-setup.ps1"
+set "PS1_TMP=%TEMP%\vertrieb-email-tool-setup.ps1"
 
 if exist "%PS1_LOCAL%" (
   echo Starte lokale Einrichtung: "%PS1_LOCAL%"

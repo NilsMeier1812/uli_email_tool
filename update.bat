@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  Uli Email Tool - Update (ohne Admin-Rechte)
+REM  Vertrieb Email Tool - Update (ohne Admin-Rechte)
 REM  Holt die neueste Version und aktualisiert die Pakete.
 REM  Einstellungen (config.json) bleiben erhalten.
 REM ============================================================

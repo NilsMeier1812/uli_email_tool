@@ -8,7 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-NAME = "Uli Email Tool"
+NAME = "Vertrieb Email Tool"
+ALT_NAME = "Uli Email Tool"  # frühere Bezeichnung – alte Verknüpfung wird entfernt
 here = Path(__file__).resolve().parent
 script = here / "email_tool.pyw"
 icon = here / "icon.ico"
@@ -30,6 +31,8 @@ $ziele = @(
     [Environment]::GetFolderPath('Programs')
 )
 foreach ($ordner in $ziele) {{
+    $alt = Join-Path $ordner {ps_str(ALT_NAME + '.lnk')}
+    if (Test-Path $alt) {{ Remove-Item $alt -Force }}
     $lnk = $ws.CreateShortcut((Join-Path $ordner {ps_str(NAME + '.lnk')}))
     $lnk.TargetPath = {ps_str(pythonw)}
     $lnk.Arguments = '"' + {ps_str(script)} + '"'

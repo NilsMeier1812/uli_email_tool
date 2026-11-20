@@ -1,4 +1,4 @@
-"""Uli Email Tool – verschickt Standard-Emails zu Projekten.
+"""Vertrieb Email Tool – verschickt Standard-Emails zu Projekten.
 
 Start ohne Konsolenfenster:  pythonw email_tool.pyw   (oder Doppelklick)
 """
@@ -51,9 +51,10 @@ try:  # Passwort sicher im Windows-Anmeldeinformationsspeicher ablegen
 except ImportError:  # pragma: no cover
     keyring = None
 
-APP_ID = "gcd.uli.emailtool"
-APP_NAME = "Uli Email Tool"
-KEYRING_SERVICE = "UliEmailTool"
+APP_ID = "gcd.vertrieb.emailtool"
+APP_NAME = "Vertrieb Email Tool"
+KEYRING_SERVICE = "VertriebEmailTool"
+KEYRING_SERVICE_ALT = "UliEmailTool"  # frühere Version – Passwort wird übernommen
 
 
 def app_dir() -> Path:
@@ -285,7 +286,7 @@ DEFAULT_CONFIG = {
     # Platzhalter: {nr} Projektnummer, {firma} Kundenordner, {board} Teil nach ___
     "betreff": "PN{nr} / Baugruppendaten {firma} {board} / {nr} sind auf M",
     "anrede": "Hallo Vertrieb,",
-    "gruss": "",  # z.B. "VG\nUli" – wird beim ersten Start abgefragt
+    "gruss": "",  # z.B. "VG\n<Vorname>" – wird beim ersten Start abgefragt
     # Textbausteine (Buttons unter den Textfeldern)
     "bausteine_info": [],
     "bausteine_achtung": [],
@@ -327,7 +328,13 @@ def get_password(user: str) -> str | None:
     if keyring is None or not user:
         return None
     try:
-        return keyring.get_password(KEYRING_SERVICE, user)
+        pw = keyring.get_password(KEYRING_SERVICE, user)
+        if pw is None:
+            # Passwort aus der früheren Version übernehmen
+            pw = keyring.get_password(KEYRING_SERVICE_ALT, user)
+            if pw is not None:
+                keyring.set_password(KEYRING_SERVICE, user, pw)
+        return pw
     except Exception:
         return None
 
@@ -940,10 +947,10 @@ class OnboardingDialog(QDialog):
         ), "field")
         intro.setWordWrap(True)
 
-        # Name aus vorhandenem Gruß übernehmen ("VG\nUli" -> "Uli")
+        # Name aus vorhandenem Gruß übernehmen ("VG\n<Name>" -> "<Name>")
         alt_gruss = [z for z in cfg.get("gruss", "").splitlines() if z.strip()]
         self.name = QLineEdit(alt_gruss[-1] if len(alt_gruss) > 1 else "")
-        self.name.setPlaceholderText("z.B. Uli")
+        self.name.setPlaceholderText("Vorname")
         self.absender = QLineEdit(cfg.get("absender", ""))
         self.absender.setPlaceholderText("vorname.nachname@gcd.de")
         self.user = QLineEdit(cfg.get("smtp_user", ""))

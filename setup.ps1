@@ -1,16 +1,16 @@
 <#
 ================================================================
- Uli Email Tool - Automatische Einrichtung (Windows)
+ Vertrieb Email Tool - Automatische Einrichtung (Windows)
 ================================================================
 
  Richtet ALLES ein, was fuer das Email-Tool noetig ist:
 
    1. Python pruefen  -> sonst installieren (winget, sonst Direkt-Download)
    2. Git pruefen     -> sonst installieren (winget) [optional, fuer Updates]
-   3. Repo nach C:\uli_email_tool holen (git clone / ZIP-Download)
+   3. Repo nach C:\vertrieb_email_tool holen (git clone / ZIP-Download)
    4. Schreibrechte fuer normale Benutzer (config.json, git pull)
    5. pip install -r requirements.txt (PyQt6, keyring - PFLICHT)
-   6. Verknuepfung "Uli Email Tool" mit Icon auf den Desktop + ins Startmenue
+   6. Verknuepfung "Vertrieb Email Tool" mit Icon auf den Desktop + ins Startmenue
       (fuer ALLE Benutzer des PCs)
    7. Das Tool einmal starten (als normaler Benutzer, nicht als Admin)
 
@@ -28,14 +28,16 @@
 #>
 
 param(
-    [string]$InstallDir = "C:\uli_email_tool",
+    [string]$InstallDir = "C:\vertrieb_email_tool",
     [string]$RepoUrl    = "https://github.com/NilsMeier1812/uli_email_tool.git",
     [string]$Branch     = "main"
 )
 
 $ErrorActionPreference = "Stop"
 $ZipUrl   = "https://codeload.github.com/NilsMeier1812/uli_email_tool/zip/refs/heads/$Branch"
-$AppName  = "Uli Email Tool"
+$AppName  = "Vertrieb Email Tool"
+$OldNames = @("Uli Email Tool")          # fruehere Bezeichnungen (Verknuepfungen)
+$OldDirs  = @("C:\uli_email_tool")       # fruehere Installationsordner
 
 # ---------- kleine Ausgabe-Helfer -------------------------------------------
 function Info($m) { Write-Host ""; Write-Host "==> $m" -ForegroundColor Cyan }
@@ -198,8 +200,8 @@ function Ensure-Git {
 # 3. Repo nach $InstallDir holen
 # ============================================================================
 function Get-RepoViaZip {
-    $zip = Join-Path $env:TEMP "uli_email_tool.zip"
-    $tmp = Join-Path $env:TEMP "uli_email_tool-extract"
+    $zip = Join-Path $env:TEMP "vertrieb_email_tool.zip"
+    $tmp = Join-Path $env:TEMP "vertrieb_email_tool-extract"
     Step "Lade Repo als ZIP herunter ..."
     Invoke-WebRequest -Uri $ZipUrl -OutFile $zip -UseBasicParsing
     if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
@@ -232,7 +234,7 @@ function Ensure-Repo {
     if ((Test-Path $InstallDir) -and (Get-ChildItem $InstallDir -Force -ErrorAction SilentlyContinue)) {
         $cfg = Join-Path $InstallDir "config.json"
         if (Test-Path $cfg) {
-            $savedConfig = Join-Path $env:TEMP "uli_email_tool_config.json"
+            $savedConfig = Join-Path $env:TEMP "vertrieb_email_tool_config.json"
             Copy-Item $cfg $savedConfig -Force
         }
         $backup = "$InstallDir" + "_backup_" + (Get-Date -Format "yyyyMMdd_HHmmss")
@@ -257,6 +259,22 @@ function Ensure-Repo {
         Copy-Item $savedConfig (Join-Path $InstallDir "config.json") -Force
         Remove-Item $savedConfig -ErrorAction SilentlyContinue
         Ok "Vorhandene Einstellungen (config.json) uebernommen."
+    }
+    Import-OldConfig
+}
+
+# Einstellungen aus einem frueheren Installationsordner uebernehmen.
+function Import-OldConfig {
+    $ziel = Join-Path $InstallDir "config.json"
+    if (Test-Path $ziel) { return }
+    foreach ($alt in $OldDirs) {
+        $quelle = Join-Path $alt "config.json"
+        if (($alt -ne $InstallDir) -and (Test-Path $quelle)) {
+            Copy-Item $quelle $ziel -Force
+            Ok "Einstellungen aus $alt uebernommen."
+            Warn "Der alte Ordner $alt wird nicht mehr gebraucht und kann geloescht werden."
+            return
+        }
     }
 }
 
@@ -320,12 +338,23 @@ function Ensure-Shortcuts {
     $icon    = Join-Path $InstallDir "icon.ico"
     $pythonw = Get-Pythonw
 
-    # Alte Verknuepfungen aus Verknuepfung_erstellen.bat (nur fuer einen Benutzer)
-    # entfernen, sonst liegt das Icon doppelt auf dem Desktop.
-    foreach ($ordner in @([Environment]::GetFolderPath("Desktop"),
-                          [Environment]::GetFolderPath("Programs"))) {
-        $alt = Join-Path $ordner "$AppName.lnk"
-        if (Test-Path $alt) { Remove-Item $alt -Force -ErrorAction SilentlyContinue }
+    # Alte Verknuepfungen entfernen: aus Verknuepfung_erstellen.bat (nur fuer
+    # einen Benutzer) und unter frueheren Programmnamen - sonst doppelte Icons.
+    $common = @([Environment]::GetFolderPath("CommonDesktopDirectory"),
+                [Environment]::GetFolderPath("CommonPrograms"))
+    $user   = @([Environment]::GetFolderPath("Desktop"),
+                [Environment]::GetFolderPath("Programs"))
+    foreach ($ordner in $user) {
+        foreach ($n in @($AppName) + $OldNames) {
+            $alt = Join-Path $ordner "$n.lnk"
+            if (Test-Path $alt) { Remove-Item $alt -Force -ErrorAction SilentlyContinue }
+        }
+    }
+    foreach ($ordner in $common) {
+        foreach ($n in $OldNames) {
+            $alt = Join-Path $ordner "$n.lnk"
+            if (Test-Path $alt) { Remove-Item $alt -Force -ErrorAction SilentlyContinue }
+        }
     }
 
     $wsh = New-Object -ComObject WScript.Shell
