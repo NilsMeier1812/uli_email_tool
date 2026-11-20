@@ -17,7 +17,7 @@ from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 from pathlib import Path
 
-from PyQt6.QtCore import QByteArray, QObject, QPoint, QRect, QRectF, QSize, QThread, Qt, pyqtSignal
+from PyQt6.QtCore import QByteArray, QObject, QPoint, QRect, QRectF, QSize, QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QGuiApplication, QIcon, QIntValidator, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
@@ -272,7 +272,7 @@ DEFAULT_CONFIG = {
     "projekt_basis": r"M:\Projekte_ab_20000",
     "smtp_server": "mail.gcd.de",
     "smtp_port": 587,
-    "smtp_user": "nimeier",
+    "smtp_user": "",  # wird beim ersten Start abgefragt
     "smtp_security": "STARTTLS",  # STARTTLS | SSL/TLS | Keine
     # Kopie in den Gesendet-Ordner (IMAP, gleiche Zugangsdaten wie SMTP)
     "imap_aktiv": True,
@@ -285,7 +285,7 @@ DEFAULT_CONFIG = {
     # Platzhalter: {nr} Projektnummer, {firma} Kundenordner, {board} Teil nach ___
     "betreff": "PN{nr} / Baugruppendaten {firma} {board} / {nr} sind auf M",
     "anrede": "Hallo Vertrieb,",
-    "gruss": "VG\nUli",
+    "gruss": "",  # z.B. "VG\nUli" – wird beim ersten Start abgefragt
     # Textbausteine (Buttons unter den Textfeldern)
     "bausteine_info": [],
     "bausteine_achtung": [],
@@ -552,6 +552,36 @@ class SendWorker(QObject):
                 f"Die Email wurde versendet, konnte aber nicht im Gesendet-Ordner "
                 f"abgelegt werden:\n{type(exc).__name__}: {exc}"
             )
+
+
+def smtp_test(v: dict, password: str):
+    """Verbindung + Anmeldung testen; wirft eine Exception bei Fehler."""
+    ctx = ssl.create_default_context()
+    if v["smtp_security"] == "SSL/TLS":
+        s = smtplib.SMTP_SSL(v["smtp_server"], int(v["smtp_port"]), context=ctx, timeout=15)
+    else:
+        s = smtplib.SMTP(v["smtp_server"], int(v["smtp_port"]), timeout=15)
+    with s:
+        s.ehlo()
+        if v["smtp_security"] == "STARTTLS":
+            s.starttls(context=ctx)
+            s.ehlo()
+        if v["smtp_user"]:
+            s.login(v["smtp_user"], password)
+
+
+def missing_setup(cfg: dict) -> list[str]:
+    """Welche Pflichtangaben fehlen noch? (leer = alles eingerichtet)"""
+    fehlt = []
+    if not cfg.get("gruss", "").strip():
+        fehlt.append("Name")
+    if not cfg.get("absender", "").strip():
+        fehlt.append("Absender")
+    if not cfg.get("smtp_user", "").strip():
+        fehlt.append("Benutzername")
+    elif keyring is not None and not get_password(cfg["smtp_user"]):
+        fehlt.append("Passwort")
+    return fehlt
 
 
 # --------------------------------------------------------------------------- #
@@ -821,18 +851,7 @@ class SettingsDialog(QDialog):
         v = self.values()
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            ctx = ssl.create_default_context()
-            if v["smtp_security"] == "SSL/TLS":
-                s = smtplib.SMTP_SSL(v["smtp_server"], v["smtp_port"], context=ctx, timeout=15)
-            else:
-                s = smtplib.SMTP(v["smtp_server"], v["smtp_port"], timeout=15)
-            with s:
-                s.ehlo()
-                if v["smtp_security"] == "STARTTLS":
-                    s.starttls(context=ctx)
-                    s.ehlo()
-                if v["smtp_user"]:
-                    s.login(v["smtp_user"], self.password.text())
+            smtp_test(v, self.password.text())
             QApplication.restoreOverrideCursor()
             QMessageBox.information(self, "Test", "Verbindung und Anmeldung erfolgreich.")
         except Exception as exc:
@@ -904,6 +923,136 @@ def shortcut_button(text: str, slot) -> QPushButton:
 # --------------------------------------------------------------------------- #
 # Hauptfenster
 # --------------------------------------------------------------------------- #
+class OnboardingDialog(QDialog):
+    """Kurze Ersteinrichtung: nur die Angaben, ohne die nichts geht."""
+
+    def __init__(self, cfg: dict, parent=None):
+        super().__init__(parent)
+        self.cfg = cfg
+        self.setWindowTitle(f"Willkommen – {APP_NAME}")
+        self.setMinimumWidth(500)
+
+        titel = QLabel("Willkommen!")
+        titel.setStyleSheet("font-size: 15pt; font-weight: 600;")
+        intro = set_role(QLabel(
+            "Bevor es losgeht, brauche ich ein paar Angaben zu dir. "
+            "Alles lässt sich später unter „Einstellungen“ ändern."
+        ), "field")
+        intro.setWordWrap(True)
+
+        # Name aus vorhandenem Gruß übernehmen ("VG\nUli" -> "Uli")
+        alt_gruss = [z for z in cfg.get("gruss", "").splitlines() if z.strip()]
+        self.name = QLineEdit(alt_gruss[-1] if len(alt_gruss) > 1 else "")
+        self.name.setPlaceholderText("z.B. Uli")
+        self.absender = QLineEdit(cfg.get("absender", ""))
+        self.absender.setPlaceholderText("vorname.nachname@gcd.de")
+        self.user = QLineEdit(cfg.get("smtp_user", ""))
+        self.user.setPlaceholderText("Anmeldename am Mailserver")
+        self.password = QLineEdit(get_password(cfg.get("smtp_user", "")) or "")
+        self.password.setEchoMode(QLineEdit.EchoMode.Password)
+
+        self.gruss_preview = set_role(QLabel(), "field")
+        self.name.textChanged.connect(self._update_gruss)
+        self._update_gruss()
+
+        karte = QGroupBox("DEINE DATEN")
+        f = QFormLayout(karte)
+        f.setHorizontalSpacing(14)
+        f.setVerticalSpacing(8)
+        f.addRow(fixed_label("Name"), self.name)
+        f.addRow("", self.gruss_preview)
+        f.addRow(fixed_label("Email-Adresse"), self.absender)
+        f.addRow(fixed_label("Benutzername"), self.user)
+        f.addRow(fixed_label("Passwort"), self.password)
+        hinweis = set_role(QLabel(
+            "Benutzername und Passwort sind dieselben wie in Thunderbird "
+            f"(Postausgangs-Server {cfg['smtp_server']}). Das Passwort wird sicher im "
+            "Windows-Anmeldespeicher abgelegt."
+        ), "field")
+        hinweis.setWordWrap(True)
+        f.addRow("", hinweis)
+
+        test_btn = with_icon(QPushButton("  Verbindung testen"), "plug")
+        test_btn.clicked.connect(self.test_connection)
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+
+        later = set_role(QPushButton("Später"), "ghost")
+        later.clicked.connect(self.reject)
+        save = set_role(QPushButton("Speichern und loslegen"), "primary")
+        save.clicked.connect(self.accept)
+        save.setDefault(True)
+
+        test_row = QHBoxLayout()
+        test_row.addWidget(test_btn)
+        test_row.addWidget(self.status, 1)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        btn_row.addWidget(later)
+        btn_row.addWidget(save)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(22, 20, 22, 18)
+        lay.setSpacing(10)
+        lay.addWidget(titel)
+        lay.addWidget(intro)
+        lay.addWidget(karte)
+        lay.addLayout(test_row)
+        lay.addSpacing(6)
+        lay.addLayout(btn_row)
+
+        for feld in (self.name, self.absender, self.user, self.password):
+            feld.textChanged.connect(lambda _=None: self.status.clear())
+
+        # Fokus auf das erste leere Feld
+        for feld in (self.name, self.absender, self.user, self.password):
+            if not feld.text():
+                feld.setFocus()
+                break
+
+    def _update_gruss(self):
+        name = self.name.text().strip() or "…"
+        self.gruss_preview.setText(f"Gruß in der Mail:  VG / {name}")
+
+    def _werte(self) -> dict:
+        return dict(self.cfg, absender=self.absender.text().strip(), smtp_user=self.user.text().strip())
+
+    def _set_status(self, text: str, ok: bool):
+        self.status.setStyleSheet(f"color: {'#16a34a' if ok else '#dc2626'};")
+        self.status.setText(text)
+
+    def test_connection(self):
+        if not self.user.text().strip() or not self.password.text():
+            self._set_status("Bitte Benutzername und Passwort eintragen.", False)
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            smtp_test(self._werte(), self.password.text())
+            self._set_status("Anmeldung erfolgreich.", True)
+        except smtplib.SMTPAuthenticationError:
+            self._set_status("Benutzername oder Passwort falsch.", False)
+        except Exception as exc:
+            self._set_status(f"{type(exc).__name__}: {exc}", False)
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def accept(self):
+        fehlt = [n for n, w in (("Name", self.name), ("Email-Adresse", self.absender),
+                                ("Benutzername", self.user), ("Passwort", self.password))
+                 if not w.text().strip()]
+        if fehlt:
+            self._set_status("Bitte noch ausfüllen: " + ", ".join(fehlt), False)
+            return
+        if "@" not in self.absender.text():
+            self._set_status("Die Email-Adresse sieht nicht vollständig aus.", False)
+            return
+        self.cfg.update(self._werte())
+        self.cfg["gruss"] = f"VG\n{self.name.text().strip()}"
+        save_config(self.cfg)
+        set_password(self.cfg["smtp_user"], self.password.text())
+        super().accept()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -1250,7 +1399,9 @@ class MainWindow(QMainWindow):
             absaetze.append([zeile("Achtung:")])
             absaetze.append([zeile(f"- {p}") for p in punkte])
 
-        absaetze.append([zeile(z) for z in self.cfg["gruss"].splitlines()])
+        gruss = [zeile(z) for z in self.cfg["gruss"].splitlines()]
+        if gruss:
+            absaetze.append(gruss)
 
         text = "\n\n".join("\n".join(t for t, _ in a) for a in absaetze)
         html = (
@@ -1349,10 +1500,10 @@ class MainWindow(QMainWindow):
         if not to:
             QMessageBox.warning(self, APP_NAME, "Bitte mindestens einen Empfänger angeben.")
             return
-        if not cfg["absender"]:
-            QMessageBox.information(self, APP_NAME, "Bitte zuerst die Absender-Adresse in den Einstellungen eintragen.")
-            self.open_settings()
-            return
+        if not cfg["absender"] or not cfg["smtp_user"] or not cfg["gruss"].strip():
+            if not self.run_onboarding():
+                return
+            cfg = self.cfg
 
         password = self.session_password or get_password(cfg["smtp_user"])
         if cfg["smtp_user"] and not password:
@@ -1436,6 +1587,20 @@ class MainWindow(QMainWindow):
                 hl.addWidget(shortcut_button(text, slot))
             self._replace_container(attr, row, container)
 
+    # ----- Ersteinrichtung -----
+    def run_onboarding(self) -> bool:
+        dlg = OnboardingDialog(self.cfg, self)
+        if not dlg.exec():
+            return False
+        self.session_password = None
+        self.update_preview()
+        return True
+
+    def check_setup(self):
+        """Beim Start: fehlen Pflichtangaben, kurz das Onboarding zeigen."""
+        if missing_setup(self.cfg):
+            self.run_onboarding()
+
     # ----- Sonstiges -----
     def open_settings(self):
         dlg = SettingsDialog(self.cfg, self)
@@ -1484,6 +1649,7 @@ def main():
 
     win = MainWindow()
     win.show()
+    QTimer.singleShot(150, win.check_setup)
     sys.exit(app.exec())
 
 

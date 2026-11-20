@@ -50,9 +50,11 @@ Nur für den eigenen Rechner ohne Setup: `Verknuepfung_erstellen.bat` legt eine 
 Als eigenständige `.exe` (Rechner ohne Python): `build_exe.bat` → `dist\UliEmailTool.exe`.
 
 ## Einstellungen
+Beim **ersten Start** (bzw. solange etwas fehlt) öffnet sich ein kurzes **Willkommen-Fenster**: Name (für den Gruß), Email-Adresse, Benutzername und Passwort – mit Verbindungstest. Es ist keine Person voreingestellt.
+
 Beim ersten Mal unter **Einstellungen…** eintragen:
 - **Absender-Adresse** (Empfänger ist `vertrieb@gcd.de` vorbelegt, mehrere mit `;` trennen)
-- SMTP ist vorbelegt: `mail.gcd.de`, Port `587`, STARTTLS, Benutzer `nimeier`
+- SMTP ist vorbelegt: `mail.gcd.de`, Port `587`, STARTTLS
 - Passwort wird über `keyring` im Windows-Anmeldeinformationsspeicher abgelegt – nicht im Klartext
 
 **Gesendet-Ordner:** Nach dem Versand legt das Tool per IMAP (`mail.gcd.de:993`, gleiche Zugangsdaten) eine Kopie in deinen Gesendet-Ordner. Der Ordner wird automatisch erkannt; unter **Einstellungen → Gesendet-Ordner** kann man ihn testen, fest eintragen oder die Funktion abschalten.
