@@ -40,6 +40,8 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
+    QFrame,
     QSpinBox,
     QTabWidget,
     QTextEdit,
@@ -187,6 +189,7 @@ QPushButton[role="chip"]:hover { border: 1px solid ACCENT; color: ACCENT; backgr
 QPushButton[role="chip"]:pressed { background: #e2e8f0; }
 
 /* Vorschau */
+QScrollArea#leftScroll, QWidget#leftInner { background: transparent; border: none; }
 QWidget#editbar { background: #eff6ff; border: 1px solid #dbeafe; border-radius: 8px; }
 QWidget#editbar QLabel { color: #1e40af; font-size: 9pt; }
 QWidget#editbar QPushButton { color: ACCENT; font-weight: 600; }
@@ -1416,11 +1419,21 @@ class MainWindow(QMainWindow):
         columns = QHBoxLayout()
         columns.setSpacing(16)
         outer.addLayout(columns, 1)
+        # Linke Spalte scrollbar: auf kleinen Bildschirmen wird gescrollt statt gestaucht
         left_w = QWidget()
+        left_w.setObjectName("leftInner")
         root = QVBoxLayout(left_w)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(0, 0, 10, 0)  # Platz für die Scrollleiste
         root.setSpacing(4)
-        columns.addWidget(left_w, 5)
+        self.left_scroll = QScrollArea()
+        self.left_scroll.setObjectName("leftScroll")
+        self.left_scroll.setWidget(left_w)
+        self.left_scroll.setWidgetResizable(True)
+        self.left_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.left_scroll.viewport().setAutoFillBackground(False)
+        self._left_inner = left_w
+        columns.addWidget(self.left_scroll, 5)
 
         # --- Projekt ---
         proj_box = QGroupBox("PROJEKT")
@@ -1655,7 +1668,11 @@ class MainWindow(QMainWindow):
         self.info_mode.set_value("PO")
         self.update_subject()
         screen = QGuiApplication.primaryScreen().availableGeometry()
-        self.resize(min(1400, screen.width() - 40), min(900, screen.height() - 60))
+        # Breite so, dass links nie horizontal gescrollt werden muss
+        self.left_scroll.setMinimumWidth(
+            self._left_inner.minimumSizeHint().width() + self.left_scroll.verticalScrollBar().sizeHint().width()
+        )
+        self.resize(min(1400, screen.width() - 40), min(1000, screen.height() - 60))
 
     # ----- Hilfen -----
     def nr(self) -> str:
