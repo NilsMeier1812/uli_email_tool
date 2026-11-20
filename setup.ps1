@@ -171,7 +171,7 @@ function Ensure-Python {
 }
 
 # ============================================================================
-# 2. Git (optional - fuer bequeme spaetere Updates per update.bat / git pull)
+# 2. Git (optional - fuer Updates aus dem Tool heraus)
 # ============================================================================
 function Ensure-Git {
     Info "Pruefe Git ..."
@@ -284,7 +284,7 @@ function Import-OldConfig {
 function Ensure-Permissions {
     Info "Setze Schreibrechte fuer normale Benutzer ..."
     # Das Tool speichert seine Einstellungen (config.json) im Programmordner,
-    # und update.bat / git pull soll ohne Admin-Rechte funktionieren.
+    # und Updates aus dem Tool (git pull) sollen ohne Admin-Rechte funktionieren.
     # *S-1-5-32-545 = Gruppe "Benutzer" (sprachunabhaengig).
     & icacls $InstallDir /grant "*S-1-5-32-545:(OI)(CI)M" /T /Q | Out-Null
     Ok "Benutzer duerfen in $InstallDir schreiben."
@@ -338,8 +338,8 @@ function Ensure-Shortcuts {
     $icon    = Join-Path $InstallDir "icon.ico"
     $pythonw = Get-Pythonw
 
-    # Alte Verknuepfungen entfernen: aus Verknuepfung_erstellen.bat (nur fuer
-    # einen Benutzer) und unter frueheren Programmnamen - sonst doppelte Icons.
+    # Alte Verknuepfungen entfernen: nur fuer einen Benutzer angelegte und
+    # solche unter frueheren Programmnamen - sonst doppelte Icons.
     $common = @([Environment]::GetFolderPath("CommonDesktopDirectory"),
                 [Environment]::GetFolderPath("CommonPrograms"))
     $user   = @([Environment]::GetFolderPath("Desktop"),
@@ -411,8 +411,7 @@ try {
     Write-Host "   - Email:  Absender-Adresse" -ForegroundColor White
     Write-Host "   - Server: Benutzername + Passwort (dann 'Verbindung testen')" -ForegroundColor White
     Write-Host ""
-    Write-Host " Updates spaeter: update.bat im Ordner $InstallDir doppelklicken" -ForegroundColor White
-    Write-Host " (oder setup.bat erneut ausfuehren)." -ForegroundColor White
+    Write-Host " Updates und Verknuepfung: im Tool unter Einstellungen -> System." -ForegroundColor White
     Write-Host ""
 }
 catch {

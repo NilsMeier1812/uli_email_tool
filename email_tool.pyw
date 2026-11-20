@@ -233,6 +233,7 @@ ICON_PATHS = {
               'a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/>',
     "download": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>'
                 '<path d="M12 15V3"/>',
+    "monitor": '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
     "plus": '<path d="M12 5v14"/><path d="M5 12h14"/>',
     "plug": '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/>'
             '<path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
@@ -777,6 +778,97 @@ class UpdateWorker(QObject):
             self.failed.emit(str(exc))
 
 
+# --------------------------------------------------------------------------- #
+# Desktop-Verknüpfung (Windows)
+# --------------------------------------------------------------------------- #
+OLD_APP_NAMES = ["Uli Email Tool"]  # frühere Bezeichnungen – alte Verknüpfungen werden entfernt
+
+
+def _ps_str(value) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def run_powershell(script: str, timeout: int = 30) -> str:
+    res = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=timeout, creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    if res.returncode != 0:
+        raise RuntimeError(res.stderr.strip() or "PowerShell-Fehler")
+    return res.stdout.strip()
+
+
+def shortcut_possible() -> str:
+    """Leerer String, wenn Verknüpfungen angelegt werden können – sonst der Grund."""
+    if sys.platform != "win32":
+        return "Nur unter Windows verfügbar."
+    return ""
+
+
+def _pythonw() -> str:
+    if getattr(sys, "frozen", False):
+        return sys.executable
+    exe = Path(sys.executable)
+    pyw = exe.with_name("pythonw.exe")
+    return str(pyw if pyw.exists() else exe)
+
+
+def shortcut_status() -> str:
+    """'alle' (öffentlicher Desktop), 'benutzer' (eigener Desktop) oder 'keine'."""
+    name = _ps_str(APP_NAME + ".lnk")
+    out = run_powershell(
+        f"if (Test-Path (Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) {name})) {{ 'alle' }} "
+        f"elseif (Test-Path (Join-Path ([Environment]::GetFolderPath('Desktop')) {name})) {{ 'benutzer' }} "
+        f"else {{ 'keine' }}"
+    )
+    return out.splitlines()[-1] if out else "keine"
+
+
+def create_shortcuts() -> str:
+    """Desktop- und Startmenü-Verknüpfung anlegen bzw. reparieren.
+
+    Gibt es schon eine für alle Benutzer (vom Setup), wird diese aktualisiert –
+    dafür fehlen ohne Admin-Rechte meist die Rechte, dann bleibt sie, wie sie ist.
+    Sonst wird sie für den aktuellen Benutzer angelegt.
+    """
+    if getattr(sys, "frozen", False):
+        target, args = sys.executable, ""
+    else:
+        target, args = _pythonw(), f'"{Path(__file__).resolve()}"'
+    icon = resource_path("icon.ico")
+    alt = ", ".join(_ps_str(n + ".lnk") for n in OLD_APP_NAMES)
+    script = f"""
+$ErrorActionPreference = 'Stop'
+$ws = New-Object -ComObject WScript.Shell
+function Make($ordner) {{
+    $lnk = $ws.CreateShortcut((Join-Path $ordner {_ps_str(APP_NAME + '.lnk')}))
+    $lnk.TargetPath = {_ps_str(target)}
+    $lnk.Arguments = {_ps_str(args)}
+    $lnk.WorkingDirectory = {_ps_str(app_dir())}
+    $lnk.IconLocation = {_ps_str(icon)} + ',0'
+    $lnk.Description = {_ps_str(APP_NAME)}
+    $lnk.Save()
+}}
+$userDirs = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))
+foreach ($o in $userDirs) {{ foreach ($n in @({alt})) {{
+    $p = Join-Path $o $n; if (Test-Path $p) {{ Remove-Item $p -Force -ErrorAction SilentlyContinue }} }} }}
+$pub = [Environment]::GetFolderPath('CommonDesktopDirectory')
+if (Test-Path (Join-Path $pub {_ps_str(APP_NAME + '.lnk')})) {{
+    try {{
+        Make $pub
+        Make ([Environment]::GetFolderPath('CommonPrograms'))
+        'alle'
+    }} catch {{ 'alle-unveraendert' }}
+}} else {{
+    foreach ($o in $userDirs) {{ Make $o }}
+    'benutzer'
+}}
+"""
+    out = run_powershell(script)
+    return out.splitlines()[-1] if out else ""
+
+
 def restart_app():
     """Tool neu starten (nach einem Update)."""
     from PyQt6.QtCore import QProcess
@@ -889,7 +981,7 @@ class SettingsDialog(QDialog):
             ("Achtung → Freitext", self.bs_achtung),
             ("Info (Text)", self.bs_info),
         ]), "Textbausteine")
-        tabs.addTab(self._update_page(), "Update")
+        tabs.addTab(self._system_page(), "System")
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -933,12 +1025,14 @@ class SettingsDialog(QDialog):
         }
 
     # ----- Update-Tab -----
-    def _update_page(self) -> QWidget:
+    def _system_page(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(16, 16, 16, 16)
         lay.setSpacing(10)
-        self._upd_thread: QThread | None = None
+        self._bg_jobs: list = []
+
+        lay.addWidget(bold_label("Version & Update"))
 
         grund = update_possible()
         version = set_role(QLabel(f"Installierte Version:  {current_version() if not grund else '–'}"), "field")
@@ -965,20 +1059,79 @@ class SettingsDialog(QDialog):
         row.addWidget(self.upd_apply)
         row.addStretch(1)
         lay.addLayout(row)
-        lay.addStretch(1)
         self.upd_check.setEnabled(not grund)
+
+        # --- Desktop-Verknüpfung ---
+        trenner = QWidget()
+        trenner.setFixedHeight(1)
+        trenner.setStyleSheet("background: #e3e7ee;")
+        lay.addSpacing(8)
+        lay.addWidget(trenner)
+        lay.addSpacing(4)
+        lay.addWidget(bold_label("Desktop-Verknüpfung"))
+        sc_grund = shortcut_possible()
+        self.sc_status = set_role(QLabel(sc_grund or "Prüfe …"), "field")
+        self.sc_status.setWordWrap(True)
+        lay.addWidget(self.sc_status)
+        sc_row = QHBoxLayout()
+        self.sc_btn = with_icon(QPushButton("  Verknüpfung erstellen"), "monitor")
+        self.sc_btn.clicked.connect(self._create_shortcut)
+        self.sc_btn.setEnabled(False)
+        sc_row.addWidget(self.sc_btn)
+        sc_row.addStretch(1)
+        lay.addLayout(sc_row)
+        lay.addStretch(1)
+        if not sc_grund:
+            self._bg(shortcut_status, self._sc_status_done, lambda e: self._sc_set(f"Fehler: {e}", "#dc2626"))
         return w
 
+    # ----- Verknüpfung -----
+    def _sc_set(self, text: str, color: str = "#64748b"):
+        self.sc_status.setStyleSheet(f"color: {color};")
+        self.sc_status.setText(text)
+
+    def _sc_status_done(self, status: str):
+        self.sc_btn.setEnabled(True)
+        if status == "alle":
+            self._sc_set("Auf dem Desktop und im Startmenü vorhanden (für alle Benutzer).", "#16a34a")
+            self.sc_btn.setText("  Verknüpfung reparieren")
+        elif status == "benutzer":
+            self._sc_set("Auf dem Desktop und im Startmenü vorhanden.", "#16a34a")
+            self.sc_btn.setText("  Verknüpfung reparieren")
+        else:
+            self._sc_set("Noch keine Verknüpfung auf dem Desktop.")
+            self.sc_btn.setText("  Verknüpfung erstellen")
+
+    def _create_shortcut(self):
+        self.sc_btn.setEnabled(False)
+        self._sc_set("Erstelle Verknüpfung …")
+        self._bg(create_shortcuts, self._sc_created, lambda e: (
+            self.sc_btn.setEnabled(True), self._sc_set(f"Fehler: {e}", "#dc2626")))
+
+    def _sc_created(self, ergebnis: str):
+        self.sc_btn.setEnabled(True)
+        self.sc_btn.setText("  Verknüpfung reparieren")
+        if ergebnis == "alle-unveraendert":
+            self._sc_set("Es gibt bereits eine Verknüpfung für alle Benutzer. Zum Ändern sind "
+                         "Admin-Rechte nötig – dafür setup.bat erneut ausführen.", "#64748b")
+        else:
+            self._sc_set("Verknüpfung „" + APP_NAME + "“ auf dem Desktop und im Startmenü angelegt.", "#16a34a")
+
+    def _bg(self, func, ok, fail):
+        """Funktion im Hintergrund ausführen (Fenster bleibt bedienbar)."""
+        thread = QThread(self)
+        worker = UpdateWorker(func)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(ok)
+        worker.failed.connect(fail)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        self._bg_jobs.append((thread, worker))
+        thread.start()
+
     def _upd_run(self, func, ok, fail):
-        self._upd_thread = QThread(self)
-        self._upd_worker = UpdateWorker(func)
-        self._upd_worker.moveToThread(self._upd_thread)
-        self._upd_thread.started.connect(self._upd_worker.run)
-        self._upd_worker.finished.connect(ok)
-        self._upd_worker.failed.connect(fail)
-        self._upd_worker.finished.connect(self._upd_thread.quit)
-        self._upd_worker.failed.connect(self._upd_thread.quit)
-        self._upd_thread.start()
+        self._bg(func, ok, fail)
 
     def _upd_set(self, text: str, color: str = "#64748b"):
         self.upd_status.setStyleSheet(f"color: {color};")
