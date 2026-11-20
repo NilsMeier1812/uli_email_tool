@@ -44,7 +44,7 @@ Danach im Tool unter **Einstellungen** Absender-Adresse, Benutzername und Passwo
 
 Erneut ausführen ist unbedenklich: es aktualisiert die vorhandene Installation, `config.json` bleibt erhalten.
 
-**Updates:** `update.bat` in `C:\vertrieb_email_tool` doppelklicken (keine Admin-Rechte nötig).
+**Updates:** im Tool unter **Einstellungen → Update → „Nach Updates suchen“** – zeigt die Änderungen, „Jetzt aktualisieren“ installiert sie und startet das Tool neu. Alternativ `update.bat` in `C:\vertrieb_email_tool` doppelklicken. Keine Admin-Rechte nötig.
 
 Nur für den eigenen Rechner ohne Setup: `Verknuepfung_erstellen.bat` legt eine Verknüpfung für den aktuellen Benutzer an.
 Als eigenständige `.exe` (Rechner ohne Python): `build_exe.bat` → `dist\VertriebEmailTool.exe`.

@@ -11,6 +11,7 @@ import re
 import time
 from html import escape as esc
 import smtplib
+import subprocess
 import ssl
 import sys
 from email.message import EmailMessage
@@ -230,6 +231,8 @@ ICON_PATHS = {
                 'a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
     "pencil": '<path d="M21.17 6.81a1 1 0 0 0-3.98-3.98L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35'
               'a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/>',
+    "download": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>'
+                '<path d="M12 15V3"/>',
     "plus": '<path d="M12 5v14"/><path d="M5 12h14"/>',
     "plug": '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/>'
             '<path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
@@ -688,6 +691,99 @@ def bold_label(text: str) -> QLabel:
     return set_role(QLabel(text), "section")
 
 
+# --------------------------------------------------------------------------- #
+# Update (git)
+# --------------------------------------------------------------------------- #
+def run_git(*args: str, timeout: int = 60) -> str:
+    """git im Programmordner ausführen (ohne Konsolenfenster). Wirft bei Fehler."""
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    res = subprocess.run(
+        ["git", *args], cwd=app_dir(), capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=timeout, creationflags=flags,
+    )
+    if res.returncode != 0:
+        raise RuntimeError((res.stderr or res.stdout).strip() or f"git {args[0]} fehlgeschlagen")
+    return res.stdout.strip()
+
+
+def update_possible() -> str:
+    """Leerer String, wenn Updates per git gehen – sonst der Grund, warum nicht."""
+    if getattr(sys, "frozen", False):
+        return "Die .exe-Version kann sich nicht selbst aktualisieren."
+    if not (app_dir() / ".git").exists():
+        return "Kein Git-Ordner – bitte setup.bat erneut ausführen, um zu aktualisieren."
+    try:
+        run_git("--version", timeout=10)
+    except Exception:
+        return "Git ist nicht installiert – bitte setup.bat erneut ausführen."
+    return ""
+
+
+def current_version() -> str:
+    try:
+        return run_git("log", "-1", "--format=%h vom %cd", "--date=format:%d.%m.%Y", timeout=10)
+    except Exception:
+        return "unbekannt"
+
+
+def upstream_ref() -> str:
+    try:
+        return run_git("rev-parse", "--abbrev-ref", "@{u}", timeout=10)
+    except Exception:
+        return "origin/main"
+
+
+def check_updates() -> list[str]:
+    """Holt den Stand vom Server und liefert die neuen Änderungen (leer = aktuell)."""
+    run_git("fetch", "--quiet")
+    log = run_git("log", "--format=%s", f"HEAD..{upstream_ref()}")
+    return [z for z in log.splitlines() if z.strip()]
+
+
+def apply_update() -> bool:
+    """git pull; aktualisiert Pakete, falls requirements.txt sich ändert.
+
+    Gibt zurück, ob Pakete aktualisiert wurden.
+    """
+    alt = run_git("rev-parse", "HEAD")
+    run_git("pull", "--ff-only", timeout=120)
+    geaendert = run_git("diff", "--name-only", alt, "HEAD").splitlines()
+    if "requirements.txt" not in geaendert:
+        return False
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    res = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", "-r", str(app_dir() / "requirements.txt")],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=600, creationflags=flags,
+    )
+    if res.returncode != 0:
+        raise RuntimeError("Update geladen, aber Pakete konnten nicht installiert werden:\n"
+                           + (res.stderr or res.stdout).strip()[-800:])
+    return True
+
+
+class UpdateWorker(QObject):
+    finished = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, func):
+        super().__init__()
+        self.func = func
+
+    def run(self):
+        try:
+            self.finished.emit(self.func())
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+def restart_app():
+    """Tool neu starten (nach einem Update)."""
+    from PyQt6.QtCore import QProcess
+    QProcess.startDetached(sys.executable, [str(Path(__file__).resolve())], str(app_dir()))
+    QApplication.quit()
+
+
 class SettingsDialog(QDialog):
     def __init__(self, cfg: dict, parent=None):
         super().__init__(parent)
@@ -793,6 +889,7 @@ class SettingsDialog(QDialog):
             ("Achtung → Freitext", self.bs_achtung),
             ("Info (Text)", self.bs_info),
         ]), "Textbausteine")
+        tabs.addTab(self._update_page(), "Update")
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -834,6 +931,96 @@ class SettingsDialog(QDialog):
             "shortcuts_sonstiges": [z.strip() for z in self.sc_sonst.toPlainText().splitlines() if z.strip()],
             "shortcuts_bauteile": [z.strip() for z in self.sc_bauteile.toPlainText().splitlines() if z.strip()],
         }
+
+    # ----- Update-Tab -----
+    def _update_page(self) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setSpacing(10)
+        self._upd_thread: QThread | None = None
+
+        grund = update_possible()
+        version = set_role(QLabel(f"Installierte Version:  {current_version() if not grund else '–'}"), "field")
+        lay.addWidget(version)
+
+        self.upd_status = QLabel(grund or "Prüft, ob es auf GitHub eine neuere Version gibt.")
+        self.upd_status.setWordWrap(True)
+        set_role(self.upd_status, "field")
+        lay.addWidget(self.upd_status)
+
+        self.upd_list = QLabel()
+        self.upd_list.setWordWrap(True)
+        self.upd_list.hide()
+        lay.addWidget(self.upd_list)
+
+        row = QHBoxLayout()
+        self.upd_check = with_icon(QPushButton("  Nach Updates suchen"), "search")
+        self.upd_check.clicked.connect(self._check_updates)
+        self.upd_apply = with_icon(set_role(QPushButton("  Jetzt aktualisieren"), "primary"),
+                                   "download", "#ffffff")
+        self.upd_apply.clicked.connect(self._apply_update)
+        self.upd_apply.hide()
+        row.addWidget(self.upd_check)
+        row.addWidget(self.upd_apply)
+        row.addStretch(1)
+        lay.addLayout(row)
+        lay.addStretch(1)
+        self.upd_check.setEnabled(not grund)
+        return w
+
+    def _upd_run(self, func, ok, fail):
+        self._upd_thread = QThread(self)
+        self._upd_worker = UpdateWorker(func)
+        self._upd_worker.moveToThread(self._upd_thread)
+        self._upd_thread.started.connect(self._upd_worker.run)
+        self._upd_worker.finished.connect(ok)
+        self._upd_worker.failed.connect(fail)
+        self._upd_worker.finished.connect(self._upd_thread.quit)
+        self._upd_worker.failed.connect(self._upd_thread.quit)
+        self._upd_thread.start()
+
+    def _upd_set(self, text: str, color: str = "#64748b"):
+        self.upd_status.setStyleSheet(f"color: {color};")
+        self.upd_status.setText(text)
+
+    def _check_updates(self):
+        self.upd_check.setEnabled(False)
+        self.upd_apply.hide()
+        self.upd_list.hide()
+        self._upd_set("Suche nach Updates …")
+        self._upd_run(check_updates, self._check_done, self._upd_failed)
+
+    def _check_done(self, neu: list):
+        self.upd_check.setEnabled(True)
+        if not neu:
+            self._upd_set("Du hast die neueste Version.", "#16a34a")
+            return
+        self._upd_set(f"{len(neu)} Änderung(en) verfügbar:", ACCENT)
+        self.upd_list.setText("<br>".join(f"•&nbsp; {esc(z)}" for z in neu[:12])
+                              + ("<br>…" if len(neu) > 12 else ""))
+        self.upd_list.show()
+        self.upd_apply.show()
+
+    def _apply_update(self):
+        self.upd_check.setEnabled(False)
+        self.upd_apply.setEnabled(False)
+        self._upd_set("Lade Update … (kann bei neuen Paketen etwas dauern)")
+        self._upd_run(apply_update, self._apply_done, self._upd_failed)
+
+    def _apply_done(self, _pakete):
+        self.upd_list.hide()
+        self.upd_apply.hide()
+        self._upd_set("Update installiert.", "#16a34a")
+        if QMessageBox.question(
+            self, "Update installiert", "Das Update ist installiert. Jetzt neu starten?"
+        ) == QMessageBox.StandardButton.Yes:
+            restart_app()
+
+    def _upd_failed(self, err: str):
+        self.upd_check.setEnabled(True)
+        self.upd_apply.setEnabled(True)
+        self._upd_set(f"Fehler: {err}", "#dc2626")
 
     def test_imap(self):
         v = dict(self.cfg, **self.values())
