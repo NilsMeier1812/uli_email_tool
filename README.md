@@ -2,32 +2,32 @@
 
 Kleines PyQt6-Tool, um die immer gleiche Email „Baugruppendaten liegen auf …“ an den Vertrieb zu verschicken.
 
-## Ablauf
-1. Projektnummer eingeben (z.B. `21156`) → Enter / **Suchen**
-2. Das Tool sucht im zweiten Unterordner von `M:\Projekte_ab_20000` nach `21156___…`
-   und hängt `\21156.01\Aktuell` an, z.B.
-   `M:\Projekte_ab_20000\FEINMETALL\21156___G0056D-V01-J7-00126-PV_1191274\21156.01\Aktuell`
-   (bei mehreren Treffern erscheint eine Auswahl, der Pfad kann auch von Hand angepasst werden)
-3. Optional **Entwickler** eintragen → steht im Betreff in Klammern hinter der Firma, z.B. `FEINMETALL (Müller)`
-4. **Info**: `PO` / `Ang` (abwählbar) und ein Textfeld:
-   - PO + Text → „Bestellung: **gemäß PO**, Text“ · nur PO → „Bestellung: **gemäß PO**“ · nur Text → „Bestellung: Text“
-   - optional **Liefertermin** (in der Mail rot und fett)
-5. **Achtung** – wird in der Mail zur Aufzählung:
-   - **LP**: Einzel-LP / Nutzen, Anzahl (zwei Felder, z.B. `10` + `5er mit Rand`), Lieferant (mit Shortcut-Buttons Fima, KC, Piu, Zeroone), Sonstiges (z.B. „Daten sind bei Hersteller“)
-   - **Paste**: von M / Hersteller / Keine
-   - **Bauteile**: Freitext (Shortcut „BOM“)
-   - Schalter **US** (US Reinigung), **Lasertrennung**, **Beist** (Beistellung, mit Textfeld → `Beistellung -> ...`) – je ein eigener Punkt
-   - **Freitext**: jede Zeile ein eigener Punkt
+## Vorlagen
+Oben im Fenster wählt man die Vorlage. Der Kopf (Projektnummer → Suche → Pfad, Entwickler) ist bei allen gleich.
 
-   Ergebnis z.B.:
-   ```
-   - LP -> Nutzen, Anzahl: 10, 5er mit Rand, Lieferant: KC, Daten sind bei Hersteller
-   - Paste -> von M
-   - Bauteile -> ...
-   - ...
-   ```
-6. Bei Bedarf direkt in der **Vorschau** nachbessern (dann werden Feldänderungen nicht mehr übernommen, „Neu aus Feldern“ setzt zurück)
-7. **Senden** – die Mail geht direkt über SMTP raus
+### Daten auf M
+Baugruppendaten liegen auf M – Info an den Vertrieb.
+- **Info**: `PO` / `Ang` (abwählbar) und Textfeld – „Bestellung: **gemäß PO**, Text“; optional **Liefertermin** (rot, fett)
+- **Achtung** (wird zur Aufzählung): LP (Einzel-LP/Nutzen, Anzahl, Lieferant, Sonstiges), Paste, Bauteile, US / Lasertrennung / Beist, Freitext
+
+### Bauteilbeistellung
+Beistellung in die Warenannahme gebracht – Info an Lager und Vertrieb.
+- **Variante**: `Teil 1` (Zeroone) · `Teil 2` (Vernieten GCD) · `QUAL` · `EVM` · `Ohne`
+- **Kunde**: aus dem Pfad vorbelegt, änderbar (z.B. TEXAS_INSTRUMENTS → TI, wird gemerkt)
+- bei QUAL/EVM/Ohne: Beistellung von, Bestücken von, Spare-Hinweis, Freitext (rot)
+- **Scan**: die letzten Scans vom Scanner (`mail.sender@gcd.de`) aus dem Posteingang – ansehen, richtigen wählen; oder PDF hineinziehen
+- **nach dem Senden**: Scan nach `Aktuell\BGR\Bestellung_…_TTMMJJ.pdf`; bei QUAL/EVM/Ohne Eintrag oben in die README im BGR-Ordner (`MM-TT-JJ / Kürzel`)
+
+Projektordner: es wird immer `<nr>.01` verwendet, sonst der Ordner ohne Index.
+
+Vor dem Senden zeigt das Tool, was danach automatisch passiert (abwählbar). Die Vorschau rechts kann direkt bearbeitet werden.
+
+## Neue Vorlage hinzufügen (für Entwickler)
+1. `vertrieb_tool/templates/meine_vorlage.py` anlegen, Klasse von `Vorlage` ableiten (siehe `templates/base.py`)
+2. `build()` (Formular), `betreff()`, `absaetze()` (Mailtext), optional `pruefen()`, `aktionen()`, `settings_page()`
+3. in `vertrieb_tool/templates/__init__.py` in `VORLAGEN` eintragen
+
+Aufbau: `core.py` (Konfiguration) · `projekt.py` (Ordner, BGR, README) · `mail.py` (SMTP/IMAP, Scans) · `system.py` (Updates, Verknüpfung) · `ui/` (Fenster, Dialoge, Widgets, Design) · `templates/` (Vorlagen)
 
 ## Installation (Windows) – neue PCs
 **`Email_tool_setup.bat`** herunterladen und doppelklicken (Admin-Rechte werden abgefragt). Mehr braucht es nicht –
@@ -53,10 +53,11 @@ Keine Admin-Rechte nötig, keine Dateien anfassen.
 Als eigenständige `.exe` (Rechner ohne Python): `build_exe.bat` → `dist\VertriebEmailTool.exe`.
 
 ## Einstellungen
-Beim **ersten Start** (bzw. solange etwas fehlt) öffnet sich ein kurzes **Willkommen-Fenster**: Name (für den Gruß), Email-Adresse, Benutzername und Passwort – mit Verbindungstest. Es ist keine Person voreingestellt.
+Beim **ersten Start** (bzw. solange etwas fehlt) öffnet sich ein kurzes **Willkommen-Fenster**: Name (für den Gruß), Kürzel (für README-Einträge), Email-Adresse, Benutzername und Passwort – mit Verbindungstest. Es ist keine Person voreingestellt.
 
 Beim ersten Mal unter **Einstellungen…** eintragen:
-- **Absender-Adresse** (Empfänger ist `vertrieb@gcd.de` vorbelegt, mehrere mit `;` trennen)
+- Empfänger, Anrede und Shortcut-Buttons je Vorlage im jeweiligen Tab (mehrere Adressen mit `;` trennen)
+- Postfach: Gesendet-Ordner und Scanner-Absender für die Scans
 - SMTP ist vorbelegt: `mail.gcd.de`, Port `587`, STARTTLS
 - Passwort wird über `keyring` im Windows-Anmeldeinformationsspeicher abgelegt – nicht im Klartext
 
